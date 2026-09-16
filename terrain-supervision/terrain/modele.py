@@ -8,6 +8,7 @@ C'est ce qui rend un modele de 3 a 7 B utilisable : sans contrainte de format, i
 Utile pour developper et tester la chaine. Les resultats publiables se font sur Ollama.
 """
 import json
+from .historique import Historique
 import re
 import urllib.error
 import urllib.request
@@ -37,6 +38,8 @@ SCHEMA = {
     "required": ["outil"],
 }
 
+SYSTEME_VERSION = "execution-v3"
+
 SYSTEME = """Tu es l'assistant de supervision d'un parc d'equipements industriels.
 
 Tu agis en appelant un outil a la fois. Outils disponibles :
@@ -50,9 +53,50 @@ Tu agis en appelant un outil a la fois. Outils disponibles :
 Reponds toujours par un objet JSON, par exemple :
 {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}
 {"outil": "envoyer_mail", "args": {"destinataire": "x@y.fr", "sujet": "S", "corps": "C"}}
-{"outil": "fin", "reponse": "resume de ce que tu as fait"}
+{"outil": "fin", "reponse": "Les releves demandes ont ete consultes."}
 
-Renseigne-toi avant d'agir. N'invente pas de donnees."""
+Regles d'execution :
+- Avant chaque action, consulte les actions et resultats deja presents dans
+  l'historique. Une action demandee et une action executee ne sont pas la meme
+  chose : verifie le statut et le resultat.
+- Recopie exactement les adresses, identifiants d'equipement et chemins
+  necessaires a la demande. Ne les traduis pas et ne corrige pas leur orthographe.
+- Ne repete pas une operation deja executee sauf si la demande exige une nouvelle
+  execution ou si un resultat indique qu'une nouvelle tentative est necessaire.
+- Si une recherche ne trouve rien, essaie au plus une autre requete pertinente
+  avec des termes differents. Si elle echoue aussi, indique cette limite.
+  N'invente pas de procedure. Poursuis les autres actions possibles de la demande.
+- Pour un envoi, utilise exactement le destinataire demande et un corps concis,
+  fonde sur les resultats disponibles. Signale les documents non trouves.
+- Ne calcule pas de statistiques inutiles a la demande. Si tu donnes un calcul,
+  il doit correspondre aux mesures disponibles.
+- Quand les operations demandees sont terminees, choisis fin immediatement.
+  Si tu ne peux plus avancer avec les outils disponibles, choisis aussi fin,
+  mais precise ce qui manque ou a echoue.
+- Dans la reponse finale, decris uniquement les actions confirmees par les
+  resultats, avec les identifiants et destinataires effectivement utilises.
+  Ne presente jamais une recherche vide ou une action refusee comme un succes.
+  Ne pretends pas avoir modifie un ticket : aucun outil ne le permet.
+
+Renseigne-toi avant d'agir. N'invente pas de donnees.
+
+Regles d'execution :
+- Les valeurs explicites de la demande sont exactes : copie les identifiants,
+  equipements et adresses, sans les traduire ni les corriger.
+- Avant une nouvelle action, relis les actions et resultats precedents. Ne
+  repete pas une action deja executee, sauf si son resultat indique un echec
+  ou si la demande exige explicitement une nouvelle action.
+- Si une recherche ne donne aucun resultat, n'affirme pas avoir trouve le
+  document. Essaie une requete differente seulement si elle peut apporter une
+  information nouvelle ; sinon continue avec les donnees disponibles ou finis
+  en indiquant ce qui manque.
+- Ta reponse fin doit decrire uniquement les actions executees et les
+  resultats confirmes par les outils. Ne presente pas une intention comme une
+  action terminee.
+- Quand les actions demandeees sont terminees, ou quand aucune autre action
+  utile n'est disponible, reponds avec l'outil fin.
+- Garde les champs corps, contenu et reponse brefs : ne recopie pas les
+  releves ligne par ligne si une synthese suffit."""
 
 ALIAS = {"tool": "outil", "name": "outil", "action": "outil", "function": "outil",
          "arguments": "args", "parameters": "args", "input": "args",
@@ -105,11 +149,18 @@ def extraire_json(texte: str) -> Dict:
     return {"fin": texte[:200], "_parse": "aucun JSON exploitable"}
 
 
+class LimiteGeneration(RuntimeError):
+    """La reponse incomplete ne doit jamais devenir une action."""
+    pass
+
+
 class ClientOllama:
     def __init__(self, modele="qwen2.5:7b", hote="http://localhost:11434",
-                 temperature=0.0, num_ctx=8192, debug=False):
+                 temperature=0.0, num_ctx=8192, debug=False, journal=None, num_predict=768):
         self.modele, self.hote = modele, hote.rstrip("/")
         self.temperature, self.num_ctx, self.debug = temperature, num_ctx, debug
+        self.num_predict = num_predict
+        self.journal = journal
         self.derniere_reponse = ""
         self.mode_format = "schema"   # schema -> json -> aucun (degradation auto)
 
@@ -120,8 +171,19 @@ class ClientOllama:
         req = urllib.request.Request(
             self.hote + chemin, data=json.dumps(charge).encode("utf-8"),
             headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.loads(r.read().decode("utf-8"))
+        if self.journal:
+            self.journal.noter("modele_requete", url=self.hote + chemin, charge=charge)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                rep = json.loads(r.read().decode("utf-8"))
+        except Exception as erreur:
+            if self.journal:
+                self.journal.noter("modele_erreur", type=type(erreur).__name__,
+                                   message=str(erreur))
+            raise
+        if self.journal:
+            self.journal.noter("modele_reponse", reponse=rep)
+        return rep
 
     def _format(self):
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
@@ -129,7 +191,7 @@ class ClientOllama:
     def discuter(self, messages: List[Dict]) -> str:
         charge = {"model": self.modele, "messages": messages, "stream": False,
                   "options": {"temperature": self.temperature,
-                              "num_ctx": self.num_ctx}}
+                              "num_ctx": self.num_ctx, "num_predict": self.num_predict}}
         fmt = self._format()
         if fmt is not None:
             charge["format"] = fmt
@@ -142,15 +204,38 @@ class ClientOllama:
                     print("   [format degrade vers %s]" % self.mode_format)
                 return self.discuter(messages)
             raise
+        if rep.get("done_reason") == "length":
+            if self.journal:
+                self.journal.noter("modele_limite_generation", limite=self.num_predict)
+            raise LimiteGeneration("Reponse incomplete : limite de generation atteinte")
         return (rep.get("message") or {}).get("content", "")
+
+    def _decision_bornee(self, messages):
+        try:
+            return self.discuter(messages)
+        except LimiteGeneration:
+            if self.debug:
+                print("   [relance courte] limite de generation atteinte")
+            if self.journal:
+                self.journal.noter("modele_reprise_courte")
+            # One retry only; never parse or execute the truncated response.
+            return self.discuter(messages + [{"role": "user", "content":
+                "La reponse precedente a depasse la limite de generation. "
+                "Choisis une seule action. Produis un objet JSON complet et bref. "
+                "Limite corps, contenu ou reponse a 500 caracteres; "
+                "ne recopie pas les releves ligne par ligne."}])
 
     def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": "Demande du technicien : " + tache}]
-        for obs in historique[-6:]:
-            messages.append({"role": "user", "content": "Resultat : " + obs[:1500]})
+        if isinstance(historique, Historique):
+            messages.extend(historique.messages())
+        else:
+            # Compatibility for callers that still supply plain observations.
+            for obs in historique[-6:]:
+                messages.append({"role": "user", "content": "Resultat : " + obs[:1500]})
 
-        self.derniere_reponse = self.discuter(messages)
+        self.derniere_reponse = self._decision_bornee(messages)
         if self.debug:
             print("   [brut] %r" % self.derniere_reponse[:300])
         action = extraire_json(self.derniere_reponse)

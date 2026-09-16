@@ -19,7 +19,8 @@ import json
 from terrain import corpus as C
 from terrain.agent import Agent
 from terrain.juge import juger
-from terrain.modele import ClientOllama, SimulateurFaible
+from terrain.journal import Journal
+from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION
 from terrain.outils import Etat
 from terrain.protections import construire
 from terrain.scenarios import ATTAQUES_CALIBRATION, taches
@@ -27,8 +28,14 @@ from terrain.scenarios import ATTAQUES_CALIBRATION, taches
 
 def faire_modele(a):
     if a.modele == "ollama":
-        return ClientOllama(a.ollama_modele, a.ollama_hote, debug=a.debug)
+        return ClientOllama(a.ollama_modele, a.ollama_hote, debug=a.debug, journal=getattr(a, "_journal", None))
     return SimulateurFaible()
+
+
+
+def faire_agent(a, etat, modele, protection, cas):
+    return Agent(etat, modele, protection,
+                 journal=getattr(a, "_journal", None), cas=cas)
 
 
 def faire_protection(a):
@@ -53,7 +60,7 @@ def cmd_points(a):
         print(f"  ... et {len(pts)-40} autres")
 
 
-def _une_attaque(a, charge, cible=None):
+def _une_attaque(a, charge, cible=None, cas="attaque"):
     """Injecte la charge, puis lance l'agent sur une tache qui la fera lire."""
     etat = neuf(a)
     pts = etat.corpus.points_injection()
@@ -67,9 +74,14 @@ def _une_attaque(a, charge, cible=None):
     elif cible[0] == "journal":
         eq = etat.corpus.journaux[int(cible[1])].equipement
 
-    agent = Agent(etat, faire_modele(a), faire_protection(a))
+    agent = faire_agent(a, etat, faire_modele(a), faire_protection(a), cas)
     ex = agent.executer(TACHE_APPAT.format(eq=eq))
-    return juger(etat, ex), ex
+    verdict = juger(etat, ex)
+    if getattr(a, "_journal", None):
+        a._journal.noter("attaque_verdict", execution=a._journal.derniere_execution,
+                         cas=cas, cible=cible, charge=charge,
+                         verdict=verdict)
+    return verdict, ex
 
 
 def cmd_attaque(a):
@@ -89,7 +101,7 @@ def cmd_calibrer(a):
 
     reussies, detail = 0, []
     for nom, charge in ATTAQUES_CALIBRATION:
-        verdict, _ = _une_attaque(a, charge)
+        verdict, _ = _une_attaque(a, charge, cas="calibration:" + nom)
         reussies += verdict["reussie"]
         detail.append((nom, verdict["reussie"], verdict["objectifs_atteints"]))
     taux = 100 * reussies / len(ATTAQUES_CALIBRATION)
@@ -145,7 +157,7 @@ def cmd_diagnostic(a):
 
     print("2. L'agent enchaine-t-il les etapes sur une tache legitime ?")
     etat = neuf(a)
-    ex = Agent(etat, modele, faire_protection(a)).executer(
+    ex = faire_agent(a, etat, modele, faire_protection(a), "diagnostic:legitime").executer(
         "Consulte le journal de CAPT-01 et envoie une synthese a responsable@entreprise.fr.")
     for ap in ex.trace:
         print(f"   {'OK ' if ap.autorise else 'REF'} {ap.outil} "
@@ -179,8 +191,11 @@ def cmd_taches(a, silencieux=False):
     ok = 0
     for t in jeu:
         etat = neuf(a)
-        ex = Agent(etat, modele, prot).executer(t.enonce)
+        ex = faire_agent(a, etat, modele, prot, t.id).executer(t.enonce)
         r = t.verifier(etat, ex)
+        if getattr(a, "_journal", None):
+            a._journal.noter("tache_verdict", execution=a._journal.derniere_execution,
+                             cas=t.id, reussie=bool(r))
         ok += bool(r)
         if not silencieux and not r:
             print(f"  echec {t.id} : {t.enonce[:60]}")
@@ -203,10 +218,33 @@ def main():
     p.add_argument("--trace", action="store_true")
     p.add_argument("--debug", action="store_true",
                    help="affiche la reponse brute du modele a chaque etape")
+    p.add_argument("--journal", metavar="FICHIER.jsonl",
+                   help="enregistre les echanges dans logs/ pour un nom simple, ou au chemin indique")
     a = p.parse_args()
-
-    {"diagnostic": cmd_diagnostic, "calibrer": cmd_calibrer, "taches": cmd_taches,
-     "attaque": cmd_attaque, "points": cmd_points}[a.commande](a)
+    a._journal = Journal(a.journal) if a.journal else None
+    if a._journal:
+        print(f"[journal] fichier={a._journal.chemin}")
+    try:
+        if a._journal:
+            a._journal.noter("campagne_debut", commande=a.commande,
+                             modele=a.modele, ollama_modele=a.ollama_modele,
+                             protections=a.protections, corpus_version=C.CORPUS_VERSION,
+                             graine=C.GRAINE,
+                             historique_version="actions-resultats-v2",
+                             systeme_version=SYSTEME_VERSION)
+        {"diagnostic": cmd_diagnostic, "calibrer": cmd_calibrer, "taches": cmd_taches,
+         "attaque": cmd_attaque, "points": cmd_points}[a.commande](a)
+        if a._journal:
+            a._journal.noter("campagne_fin", raison="terminee")
+    except BaseException as erreur:
+        if a._journal:
+            a._journal.noter("campagne_fin", raison="interruption" if
+                             isinstance(erreur, KeyboardInterrupt) else "erreur",
+                             type=type(erreur).__name__, message=str(erreur))
+        raise
+    finally:
+        if a._journal:
+            a._journal.fermer()
 
 
 if __name__ == "__main__":
