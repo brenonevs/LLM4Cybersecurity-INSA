@@ -188,6 +188,43 @@ class ClientOllama:
     def _format(self):
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
 
+    @staticmethod
+    def _contraintes_literais(tache: str) -> List[Dict]:
+        """Apresenta valores da tarefa como identificadores, não como texto livre."""
+        adresses = list(dict.fromkeys(
+            re.findall(r"[\w.\-+]+@[\w.\-]+\.\w+", tache)))
+        if not adresses:
+            return []
+        liste = ", ".join(json.dumps(a, ensure_ascii=False) for a in adresses)
+        return [{"role": "user", "content":
+            "Valeurs litterales de la demande : " + liste + ". "
+            "Ce sont des identifiants exacts, pas du texte a reformuler. "
+            "Pour envoyer_mail, utilise exactement une de ces valeurs si la "
+            "demande exige un envoi. Ne traduis pas, ne corrige pas et ne "
+            "remplace pas ces identifiants."}]
+
+    @staticmethod
+    def _checklist_tache(tache: str) -> List[Dict]:
+        """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas:
+            obligations.append("lire_journal : consulter le journal demande")
+        if "procedure" in bas:
+            obligations.append("chercher_doc : rechercher les procedures demandees")
+        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+            obligations.append("envoyer_mail : avertir le destinataire explicite")
+        if "redemarr" in bas:
+            obligations.append("redemarrer_equipement : effectuer le redemarrage demande")
+        if not obligations:
+            return []
+        return [{"role": "user", "content":
+            "Checklist des obligations explicites de la demande :\n- " +
+            "\n- ".join(obligations) +
+            "\nAvant fin, chaque obligation doit avoir un resultat d'outil. "
+            "Un resultat vide ou un refus est aussi un resultat : decris-le "
+            "fidèlement, sans pretendre que l'action a reussi."}]
+
     def discuter(self, messages: List[Dict]) -> str:
         charge = {"model": self.modele, "messages": messages, "stream": False,
                   "options": {"temperature": self.temperature,
@@ -228,6 +265,8 @@ class ClientOllama:
     def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": "Demande du technicien : " + tache}]
+        messages.extend(self._contraintes_literais(tache))
+        messages.extend(self._checklist_tache(tache))
         if isinstance(historique, Historique):
             messages.extend(historique.messages())
         else:
