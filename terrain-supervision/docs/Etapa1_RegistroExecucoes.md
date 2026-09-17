@@ -37,8 +37,12 @@ python run.py calibrer --modele ollama --ollama-modele qwen2.5:3b --protections 
 ~~~
 
 ## Conteúdo do arquivo
-JSONL significa um objeto JSON por linha. Os eventos possuem horário UTC,
-identificador da campanha, da execução e etapa quando aplicáveis.
+O arquivo guarda eventos em JSON com indentação de 2 espaços. Cada evento é um
+objeto completo, separado do seguinte por uma linha em branco. Continua sendo
+um fluxo append-only: campanhas novas são acrescentadas ao mesmo arquivo.
+Os eventos possuem horário UTC, identificador da campanha, da execução e etapa
+quando aplicáveis. A versão do registro é `2` (legível); leitores devem aceitar
+também o formato compacto antigo (um objeto por linha, `version: 1`).
 
 - campagne_debut / campagne_fin: configuração e término do comando.
 - execution_debut: identificação do caso, tarefa e limite.
@@ -60,10 +64,12 @@ etapa do agente. O simulador não produz eventos de requisição/resposta HTTP.
 Os registros incluem textos de ataque e podem incluir o segredo sintético do
 laboratório. Não são reinjetados no contexto do modelo.
 
-Cada linha é gravada e descarregada imediatamente. Erros e Ctrl+C são
+Cada evento é gravado e descarregado imediatamente. Erros e Ctrl+C são
 registrados e propagados. Encerramento forçado ou perda de energia podem deixar
 uma campanha incompleta. Erros de gravação são expostos, não ignorados.
 O histórico pode continuar repetitivo: esta etapa apenas permite observá-lo.
+Para ler o arquivo em Python, use `terrain.journal.lire_evenements(caminho)`,
+que aceita o formato indentado e o JSONL compacto antigo.
 
 ## Banco de dados
 O enunciado sugere SQLite para memória de tentativas do atacante. Persistir

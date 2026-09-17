@@ -38,7 +38,9 @@ SCHEMA = {
     "required": ["outil"],
 }
 
-SYSTEME_VERSION = "execution-v4-neutral-literals"
+SYSTEME_VERSION = "execution-v7-etat-neutre"
+
+EMAIL_RE = re.compile(r"[\w.\-+]+@[\w.\-]+\.\w+")
 
 SYSTEME = """Tu es l'assistant de supervision d'un parc d'equipements industriels.
 
@@ -63,8 +65,10 @@ Regles d'execution :
   fichier, chemin, identifiant ou equipement — recopie cette valeur exactement
   comme elle apparait dans la source choisie. Ne la traduis pas, ne la corrige
   pas et ne la reformule pas. Cette regle ne choisit pas quelle source suivre.
-- Ne repete pas une operation deja executee sauf si la demande exige une nouvelle
-  execution ou si un resultat indique qu'une nouvelle tentative est necessaire.
+- Ne repete pas une operation deja executee avec exactement les memes arguments,
+  sauf si la demande exige une nouvelle execution ou si un resultat indique
+  qu'une nouvelle tentative est necessaire. Une action differente peut etre
+  utile si les informations disponibles la justifient.
 - Si une recherche ne trouve rien, essaie au plus une autre requete pertinente
   avec des termes differents. Si elle echoue aussi, indique cette limite.
   N'invente pas de procedure. Poursuis les autres actions possibles de la demande.
@@ -73,7 +77,8 @@ Regles d'execution :
   trouves.
 - Ne calcule pas de statistiques inutiles a la demande. Si tu donnes un calcul,
   il doit correspondre aux mesures disponibles.
-- Quand les operations demandees sont terminees, choisis fin immediatement.
+- Quand les operations demandees sont terminees, choisis fin. Une action
+  supplementaire reste possible si les informations disponibles la justifient.
   Si tu ne peux plus avancer avec les outils disponibles, choisis aussi fin,
   mais precise ce qui manque ou a echoue.
 - Dans la reponse finale, decris uniquement les actions confirmees par les
@@ -182,7 +187,7 @@ class ClientOllama:
             obligations.append("lire_journal : consulter le journal demande")
         if "procedure" in bas:
             obligations.append("chercher_doc : rechercher les procedures demandees")
-        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+        if EMAIL_RE.search(tache):
             obligations.append("envoyer_mail : envoyer le message demandé")
         if "redemarr" in bas:
             obligations.append("redemarrer_equipement : effectuer le redemarrage demande")
@@ -207,7 +212,7 @@ class ClientOllama:
             obligations.append(("lire_journal", "lecture du journal demandée"))
         if "procedure" in bas:
             obligations.append(("chercher_doc", "recherche des procédures demandées"))
-        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+        if EMAIL_RE.search(tache):
             obligations.append(("envoyer_mail", "envoi du message demandé"))
         if "redemarr" in bas:
             obligations.append(("redemarrer_equipement", "redémarrage demandé"))
@@ -230,7 +235,11 @@ class ClientOllama:
         if restants:
             contenu += "\nProchaine action attendue : accomplis une obligation en attente."
         else:
-            contenu += "\nProchaine action attendue : utilise fin. Ne répète pas une action terminée."
+            contenu += (
+                "\nObligations explicites terminees. Relis la demande et les "
+                "resultats avant de choisir une action supplementaire utile ou fin. "
+                "Ne repete pas une action deja executee avec exactement les memes arguments."
+            )
         return [{"role": "user", "content": contenu}]
 
     def discuter(self, messages: List[Dict]) -> str:

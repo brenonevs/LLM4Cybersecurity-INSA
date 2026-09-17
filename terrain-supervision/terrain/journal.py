@@ -5,12 +5,25 @@ from pathlib import Path
 from uuid import uuid4
 
 
+def lire_evenements(chemin):
+    texte = Path(chemin).read_text(encoding="utf-8")
+    decodeur = json.JSONDecoder()
+    evenements = []
+    indice = 0
+    while indice < len(texte):
+        while indice < len(texte) and texte[indice].isspace():
+            indice += 1
+        if indice >= len(texte):
+            break
+        objet, fin = decodeur.raw_decode(texte, indice)
+        evenements.append(objet)
+        indice = fin
+    return evenements
+
+
 class Journal:
     def __init__(self, chemin):
-        # Append preserves previous runs; each run and execution has a unique ID.
         chemin = Path(chemin).expanduser()
-        # A simple filename always belongs to the project's logs directory.
-        # Explicit paths retain their previous meaning.
         if not chemin.is_absolute() and chemin.parent == Path("."):
             chemin = Path(__file__).resolve().parents[1] / "logs" / chemin.name
         chemin.parent.mkdir(parents=True, exist_ok=True)
@@ -23,7 +36,7 @@ class Journal:
 
     def noter(self, evenement, **donnees):
         entree = {
-            "version": 1,
+            "version": 2,
             "date_utc": datetime.now(timezone.utc).isoformat(),
             "campagne": self.campagne,
             "execution": self.execution,
@@ -31,7 +44,8 @@ class Journal:
             "evenement": evenement,
             **donnees,
         }
-        self.fichier.write(json.dumps(entree, ensure_ascii=False) + "\n")
+        self.fichier.write(json.dumps(entree, ensure_ascii=False, indent=2))
+        self.fichier.write("\n\n")
         self.fichier.flush()
 
     def commencer(self, cas, tache, max_etapes):

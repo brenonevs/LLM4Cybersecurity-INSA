@@ -10,14 +10,14 @@ import pytest
 
 from terrain.agent import Agent
 from terrain.corpus import generer
-from terrain.journal import Journal
+from terrain.journal import Journal, lire_evenements
 from terrain.modele import ClientOllama
 from terrain.outils import Etat, Outils
 from terrain.protections import Protection
 
 
 def lire(path):
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    return lire_evenements(path)
 
 
 def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
@@ -119,6 +119,18 @@ def test_append_preserve_campagnes(tmp_path):
     events = lire(path)
     assert len(events) == 2
     assert events[0]["campagne"] != events[1]["campagne"]
+    assert events[0]["version"] == 2
+    assert "\n  \"evenement\": \"test\"\n" in path.read_text(encoding="utf-8")
+
+
+def test_lire_accepte_jsonl_compact_ancien(tmp_path):
+    path = tmp_path / "ancien.jsonl"
+    path.write_text(
+        '{"version": 1, "evenement": "a", "n": 1}\n'
+        '{"version": 1, "evenement": "b", "n": 2}\n',
+        encoding="utf-8")
+    events = lire(path)
+    assert [e["evenement"] for e in events] == ["a", "b"]
 
 
 def test_repli_format_ollama_est_enregistre(tmp_path, monkeypatch):

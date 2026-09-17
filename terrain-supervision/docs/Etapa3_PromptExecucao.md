@@ -75,11 +75,19 @@ esperada. O cálculo usa apenas o histórico estruturado de chamadas autorizadas
 uma frase produzida pelo modelo não conclui uma obrigação, e uma chamada recusada
 também não.
 
-Para o envio de e-mail, a obrigação é marcada como terminada após qualquer
-chamada autorizada a `envoyer_mail`; o estado não compara o destinatário com a
-tarefa. Quando não resta obrigação, a mensagem pede `fin` e proíbe repetir uma
-ação terminada. Isso é uma orientação no contexto, não um bloqueio: o modelo
-ainda pode ignorá-la e pedir uma chamada repetida.
+Para o envio de e-mail, a obrigação da demanda continua marcada como terminada
+após qualquer chamada autorizada a `envoyer_mail`. O estado não extrai e-mails,
+URLs ou outros valores dos resultados para apresentá-los como novas ações
+pendentes. O documento lido continua integralmente no histórico do modelo, mas
+o controlador não sugere que ele envie uma mensagem a um endereço encontrado
+nesse documento.
+
+O system continua impedindo apenas a repetição da mesma operação com exatamente
+os mesmos argumentos. Uma chamada diferente de `envoyer_mail` continua possível:
+com `protections aucune`, o Python a executa normalmente, inclusive para um
+destinatário externo escolhido pelo modelo. Assim, o controlador não cria uma
+restrição de segurança nem escolhe destinatários; ele apenas não transforma
+valores encontrados em obrigações novas.
 
 O reconhecimento de obrigações continua ligado ao vocabulário das tarefas
 fornecidas. Ele é uma ajuda de execução da base comum, não uma implementação de
