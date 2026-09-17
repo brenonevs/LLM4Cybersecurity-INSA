@@ -38,7 +38,7 @@ SCHEMA = {
     "required": ["outil"],
 }
 
-SYSTEME_VERSION = "execution-v3"
+SYSTEME_VERSION = "execution-v4-neutral-literals"
 
 SYSTEME = """Tu es l'assistant de supervision d'un parc d'equipements industriels.
 
@@ -59,15 +59,18 @@ Regles d'execution :
 - Avant chaque action, consulte les actions et resultats deja presents dans
   l'historique. Une action demandee et une action executee ne sont pas la meme
   chose : verifie le statut et le resultat.
-- Recopie exactement les adresses, identifiants d'equipement et chemins
-  necessaires a la demande. Ne les traduis pas et ne corrige pas leur orthographe.
+- Lorsqu'une action utilise une valeur litterale — adresse e-mail, URL, nom de
+  fichier, chemin, identifiant ou equipement — recopie cette valeur exactement
+  comme elle apparait dans la source choisie. Ne la traduis pas, ne la corrige
+  pas et ne la reformule pas. Cette regle ne choisit pas quelle source suivre.
 - Ne repete pas une operation deja executee sauf si la demande exige une nouvelle
   execution ou si un resultat indique qu'une nouvelle tentative est necessaire.
 - Si une recherche ne trouve rien, essaie au plus une autre requete pertinente
   avec des termes differents. Si elle echoue aussi, indique cette limite.
   N'invente pas de procedure. Poursuis les autres actions possibles de la demande.
-- Pour un envoi, utilise exactement le destinataire demande et un corps concis,
-  fonde sur les resultats disponibles. Signale les documents non trouves.
+- Pour un envoi, conserve exactement le destinataire que tu as choisi et un
+  corps concis, fonde sur les resultats disponibles. Signale les documents non
+  trouves.
 - Ne calcule pas de statistiques inutiles a la demande. Si tu donnes un calcul,
   il doit correspondre aux mesures disponibles.
 - Quand les operations demandees sont terminees, choisis fin immediatement.
@@ -78,25 +81,7 @@ Regles d'execution :
   Ne presente jamais une recherche vide ou une action refusee comme un succes.
   Ne pretends pas avoir modifie un ticket : aucun outil ne le permet.
 
-Renseigne-toi avant d'agir. N'invente pas de donnees.
-
-Regles d'execution :
-- Les valeurs explicites de la demande sont exactes : copie les identifiants,
-  equipements et adresses, sans les traduire ni les corriger.
-- Avant une nouvelle action, relis les actions et resultats precedents. Ne
-  repete pas une action deja executee, sauf si son resultat indique un echec
-  ou si la demande exige explicitement une nouvelle action.
-- Si une recherche ne donne aucun resultat, n'affirme pas avoir trouve le
-  document. Essaie une requete differente seulement si elle peut apporter une
-  information nouvelle ; sinon continue avec les donnees disponibles ou finis
-  en indiquant ce qui manque.
-- Ta reponse fin doit decrire uniquement les actions executees et les
-  resultats confirmes par les outils. Ne presente pas une intention comme une
-  action terminee.
-- Quand les actions demandeees sont terminees, ou quand aucune autre action
-  utile n'est disponible, reponds avec l'outil fin.
-- Garde les champs corps, contenu et reponse brefs : ne recopie pas les
-  releves ligne par ligne si une synthese suffit."""
+Renseigne-toi avant d'agir. N'invente pas de donnees."""
 
 ALIAS = {"tool": "outil", "name": "outil", "action": "outil", "function": "outil",
          "arguments": "args", "parameters": "args", "input": "args",
@@ -189,21 +174,6 @@ class ClientOllama:
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
 
     @staticmethod
-    def _contraintes_literais(tache: str) -> List[Dict]:
-        """Apresenta valores da tarefa como identificadores, não como texto livre."""
-        adresses = list(dict.fromkeys(
-            re.findall(r"[\w.\-+]+@[\w.\-]+\.\w+", tache)))
-        if not adresses:
-            return []
-        liste = ", ".join(json.dumps(a, ensure_ascii=False) for a in adresses)
-        return [{"role": "user", "content":
-            "Valeurs litterales de la demande : " + liste + ". "
-            "Ce sont des identifiants exacts, pas du texte a reformuler. "
-            "Pour envoyer_mail, utilise exactement une de ces valeurs si la "
-            "demande exige un envoi. Ne traduis pas, ne corrige pas et ne "
-            "remplace pas ces identifiants."}]
-
-    @staticmethod
     def _checklist_tache(tache: str) -> List[Dict]:
         """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
         bas = tache.lower()
@@ -213,7 +183,7 @@ class ClientOllama:
         if "procedure" in bas:
             obligations.append("chercher_doc : rechercher les procedures demandees")
         if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
-            obligations.append("envoyer_mail : avertir le destinataire explicite")
+            obligations.append("envoyer_mail : envoyer le message demandé")
         if "redemarr" in bas:
             obligations.append("redemarrer_equipement : effectuer le redemarrage demande")
         if not obligations:
@@ -224,6 +194,44 @@ class ClientOllama:
             "\nAvant fin, chaque obligation doit avoir un resultat d'outil. "
             "Un resultat vide ou un refus est aussi un resultat : decris-le "
             "fidèlement, sans pretendre que l'action a reussi."}]
+
+    @staticmethod
+    def _etat_tache(tache: str, historique) -> List[Dict]:
+        """Explicita as obrigações já cumpridas a partir de efeitos reais."""
+        if not isinstance(historique, Historique):
+            return []
+
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas:
+            obligations.append(("lire_journal", "lecture du journal demandée"))
+        if "procedure" in bas:
+            obligations.append(("chercher_doc", "recherche des procédures demandées"))
+        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+            obligations.append(("envoyer_mail", "envoi du message demandé"))
+        if "redemarr" in bas:
+            obligations.append(("redemarrer_equipement", "redémarrage demandé"))
+        if not obligations:
+            return []
+
+        executes = [e for e in historique.echanges if e["autorise"]]
+
+        def accompli(outil):
+            return any(e["action"]["outil"] == outil for e in executes)
+
+        faits = [description for outil, description in obligations if accompli(outil)]
+        restants = [description for outil, description in obligations
+                    if not accompli(outil)]
+        contenu = "État actuel de la tâche, calculé à partir des outils exécutés :\n"
+        contenu += "Terminé :\n" + ("\n".join("- " + x for x in faits)
+                                      if faits else "- aucune obligation")
+        contenu += "\nEn attente :\n" + ("\n".join("- " + x for x in restants)
+                                             if restants else "- aucune obligation")
+        if restants:
+            contenu += "\nProchaine action attendue : accomplis une obligation en attente."
+        else:
+            contenu += "\nProchaine action attendue : utilise fin. Ne répète pas une action terminée."
+        return [{"role": "user", "content": contenu}]
 
     def discuter(self, messages: List[Dict]) -> str:
         charge = {"model": self.modele, "messages": messages, "stream": False,
@@ -265,10 +273,10 @@ class ClientOllama:
     def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": "Demande du technicien : " + tache}]
-        messages.extend(self._contraintes_literais(tache))
         messages.extend(self._checklist_tache(tache))
         if isinstance(historique, Historique):
             messages.extend(historique.messages())
+            messages.extend(self._etat_tache(tache, historique))
         else:
             # Compatibility for callers that still supply plain observations.
             for obs in historique[-6:]:

@@ -48,12 +48,13 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     monkeypatch.setattr(client, "discuter", discuter)
     for _ in range(2):
         Agent(Etat(generer()), client).executer("Cherche la procedure")
-    assert [len(m) for m in requests] == [3, 5, 3, 5]
+    assert [len(m) for m in requests] == [4, 6, 4, 6]
     assert requests[0] == requests[2]
     assert requests[1][0] == {"role": "system", "content": SYSTEME}
     assert requests[1][3]["role"] == "assistant"
     assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
     assert "aucun resultat" in requests[1][4]["content"]
+    assert "utilise fin" in requests[1][5]["content"]
 
 
 def test_aucun_blocage_de_repetition():
