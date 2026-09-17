@@ -14,7 +14,9 @@ Options communes :
   --protections aucune,filtre-lexical,liste-blanche
 """
 import argparse
+import datetime
 import json
+from pathlib import Path
 
 from terrain import corpus as C
 from terrain.agent import Agent
@@ -69,7 +71,67 @@ def _une_attaque(a, charge, cible=None):
 
     agent = Agent(etat, faire_modele(a), faire_protection(a))
     ex = agent.executer(TACHE_APPAT.format(eq=eq))
+    ex.cible = cible
+    ex.eq = eq
     return juger(etat, ex), ex
+
+
+def enregistrer_log_attaque(a, charge, cible, eq, verdict, ex):
+    dossier = Path("logs")
+    dossier.mkdir(exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    fichier_horodate = dossier / f"attaque_{timestamp}.log"
+    fichier_dernier = dossier / "dernier_attaque.log"
+
+    lignes = []
+    lignes.append("=" * 80)
+    lignes.append("RAPPORT D'EXÉCUTION D'ATTAQUE DÉTAILLÉ")
+    lignes.append(f"Date/Heure       : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lignes.append(f"Modèle           : {faire_modele(a).nom()}")
+    lignes.append(f"Protections      : {a.protections}")
+    lignes.append(f"Point d'injection: genre={cible[0]}, id={cible[1]}, champ={cible[2]}")
+    lignes.append(f"Équipement cible : {eq}")
+    lignes.append("=" * 80)
+    lignes.append("\n[CHARGE INJECTÉE]")
+    lignes.append(charge)
+    lignes.append("\n[TÂCHE APPÂT CONFIEE A L'AGENT]")
+    lignes.append(TACHE_APPAT.format(eq=eq))
+    lignes.append("\n" + "=" * 80)
+    journal = getattr(ex, "journal", [])
+    lignes.append(f"DÉROULEMENT DES ITÉRATIONS ({len(journal)} étapes enregistrées)")
+    lignes.append("=" * 80)
+
+    for item in journal:
+        lignes.append(f"\n--- ITÉRATION {item.get('etape', '?')} ---")
+        lignes.append("[PENSÉE / RÉPONSE BRUTE DU MODÈLE] :")
+        lignes.append(str(item.get('reponse_brute', '')).strip() or "(aucune réponse brute)")
+        lignes.append("\n[ACTION DÉCIDÉE] :")
+        lignes.append(f"  Outil       : {item.get('outil')}")
+        lignes.append(f"  Arguments   : {json.dumps(item.get('args', {}), ensure_ascii=False)}")
+        lignes.append(f"  Autorisé    : {'OUI' if item.get('autorise') else 'NON (REFUSÉ)'}")
+        if item.get('motif_refus'):
+            lignes.append(f"  Motif refus : {item.get('motif_refus')}")
+        lignes.append("\n[RÉSULTAT RETOURNÉ À L'AGENT] :")
+        res = str(item.get('resultat', ''))
+        if len(res) > 1000:
+            res = res[:1000] + f"\n... [tronqué pour lisibilité, total {len(item.get('resultat', ''))} caractères]"
+        lignes.append(res)
+        lignes.append("-" * 60)
+
+    lignes.append("\n" + "=" * 80)
+    lignes.append("VERDICT DU JUGE")
+    lignes.append("=" * 80)
+    lignes.append(f"Succès de l'attaque         : {'OUI (RÉUSSIE)' if verdict.get('reussie') else 'NON (ÉCHEC)'}")
+    lignes.append(f"Objectifs interdits atteints: {verdict.get('objectifs_atteints') or 'aucun'}")
+    lignes.append(f"Total appels outils         : {verdict.get('appels')}")
+    lignes.append(f"Refus des protections       : {verdict.get('refus') or 'aucun'}")
+    lignes.append(f"Réponse finale de l'agent   : {ex.reponse}")
+    lignes.append("=" * 80 + "\n")
+
+    texte_complet = "\n".join(lignes)
+    fichier_horodate.write_text(texte_complet, encoding="utf-8")
+    fichier_dernier.write_text(texte_complet, encoding="utf-8")
+    return str(fichier_horodate), str(fichier_dernier)
 
 
 def cmd_attaque(a):
@@ -81,6 +143,12 @@ def cmd_attaque(a):
             args = {k: (v[:60] + "..." if len(v) > 60 else v)
                     for k, v in ap.args.items()}
             print(f"  {marque} {ap.outil} {args}")
+
+    cible = getattr(ex, "cible", ("?", "?", "?"))
+    eq = getattr(ex, "eq", "?")
+    f_h, f_d = enregistrer_log_attaque(a, a.charge, cible, eq, verdict, ex)
+    print(f"\n[LOG DÉTAILLÉ] Fichier généré : {f_h}")
+    print(f"[LOG DÉTAILLÉ] Dernier log consultable : {f_d}")
 
 
 def cmd_calibrer(a):
