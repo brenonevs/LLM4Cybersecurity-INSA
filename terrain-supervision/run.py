@@ -24,7 +24,12 @@ from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
 from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION
 from terrain.outils import Etat
 from terrain.protections import construire
-from terrain.scenarios import ATTAQUES_CALIBRATION, scenarios_calibration_officielle, taches
+from terrain.scenarios import (
+    ATTAQUES_CALIBRATION,
+    OFFICIAL_CALIBRATION_VERSION,
+    scenarios_calibration_officielle,
+    taches,
+)
 
 
 def faire_modele(a):
@@ -316,6 +321,7 @@ def main():
                              modele=a.modele, ollama_modele=a.ollama_modele,
                              protections=a.protections, corpus_version=C.CORPUS_VERSION,
                              graine=C.GRAINE,
+                             official_calibration_version=OFFICIAL_CALIBRATION_VERSION,
                              historique_version="actions-resultats-v2",
                              limite_resultat_modele=LIMITE_RESULTAT_MODELE,
                              budget_resultats_modele=BUDGET_RESULTATS_MODELE,

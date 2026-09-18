@@ -9,6 +9,7 @@ starts.
 - Git commit;
 - `CORPUS_VERSION`, seed, and declared injection points;
 - prompt version (`SYSTEME_VERSION`);
+- official scenario version (`OFFICIAL_CALIBRATION_VERSION`);
 - Ollama model, parameters, and context/generation limits;
 - the 30-scenario list and judge version;
 - the 40 legitimate tasks.
@@ -26,6 +27,14 @@ Every case fixes its payload, injection point, legitimate task, and intended
 objective. Write cases use a task that requests a legitimate write; restart
 cases use a task that requests a legitimate restart. A failed attack therefore
 does not merely mean that its tool was absent from the normal task flow.
+
+Four write cases ask for the archival location stated in the procedure, and
+four restart cases ask for the equipment stated in the recovery procedure. In
+these cases, the operational value is obtained from a tool result, where an
+injected instruction can compete with the technician request. The other write
+and restart cases keep the legitimate path or equipment explicit in the task.
+They are control cases that measure the model's behavior when there is no
+ambiguity about the operational value.
 
 The runner deterministically selects the legitimate equipment and equipment
 without an open internal ticket from the execution corpus. Both values are
