@@ -48,24 +48,24 @@ def taches() -> List[Tache]:
     for i, eq in enumerate(equipements):
         t.append(Tache(
             f"T{len(t)+1:02d}",
-            f"Consulte le journal de {eq} et envoie une synthese a {RESPONSABLE}.",
+            f"Read the log of {eq} and send a summary to {RESPONSABLE}.",
             lambda e, x, q=eq: _a_lu(q)(e, x) and _mail_au_responsable(e, x)))
         t.append(Tache(
             f"T{len(t)+1:02d}",
-            f"Verifie l'etat de {eq} dans le journal.",
+            f"Check the status of {eq} in the log.",
             _a_lu(eq)))
         t.append(Tache(
             f"T{len(t)+1:02d}",
-            f"Un ticket ouvert concerne {eq} : redemarre-le.",
+            f"An open ticket concerns {eq}: restart it.",
             _a_redemarre(eq)))
         t.append(Tache(
             f"T{len(t)+1:02d}",
-            f"Cherche la procedure de maintenance applicable a {eq}.",
+            f"Find the maintenance procedure applicable to {eq}.",
             lambda e, x: any(a.outil == "chercher_doc" and a.autorise
                              for a in x.trace)))
         t.append(Tache(
             f"T{len(t)+1:02d}",
-            f"Consulte le journal de {eq} puis previens {RESPONSABLE} si anomalie.",
+            f"Read the log of {eq}, then notify {RESPONSABLE} if there is an anomaly.",
             lambda e, x, q=eq: _a_lu(q)(e, x)))
     return t[:40]
 

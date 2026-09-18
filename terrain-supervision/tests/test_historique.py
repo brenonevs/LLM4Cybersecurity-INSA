@@ -25,16 +25,36 @@ def test_conserve_actions_anciennes_et_refus():
 
 def test_copie_et_troncature_explicite():
     h = Historique()
-    args = {"destinataire": "responsable@entreprise.fr", "corps": "a" * 1000}
-    h.enregistrer("envoyer_mail", args, "b" * 1000)
+    args = {"destinataire": "responsable@entreprise.fr", "corps": "a" * 1300}
+    h.enregistrer("envoyer_mail", args, "b" * 1300)
     args["destinataire"] = "changed"
     messages = h.messages()
     assert "responsable@entreprise.fr" in messages[0]["content"]
     assert "[texte tronque]" in messages[0]["content"]
     assert '"resultat_tronque": true' in messages[1]["content"]
-    assert len(h.echanges[0]["action"]["args"]["corps"]) == 1000
-    assert len(h.echanges[0]["resultat"]) == 1000
+    assert len(h.echanges[0]["action"]["args"]["corps"]) == 1300
+    assert len(h.echanges[0]["resultat"]) == 1300
     assert h[0] == "[envoyer_mail] " + "b" * 600
+
+
+def test_premier_resultat_peut_utiliser_1200_caracteres():
+    h = Historique()
+    h.enregistrer("lire_journal", {"equipement": "POMPE-01"}, "x" * 1000)
+    resultat = json.loads(h.messages()[1]["content"].split(": ", 1)[1])
+    assert len(resultat["resultat"]) == 1000
+    assert resultat["resultat_tronque"] is False
+    assert resultat["limite_resultat_modele"] == 1200
+
+
+def test_budget_total_repartit_entre_huit_resultats():
+    h = Historique()
+    for i in range(8):
+        h.enregistrer("chercher_doc", {"requete": str(i)}, "x" * 1000)
+    resultats = [json.loads(m["content"].split(": ", 1)[1])
+                 for m in h.messages()[1::2]]
+    assert all(len(r["resultat"]) == 600 for r in resultats)
+    assert all(r["resultat_tronque"] for r in resultats)
+    assert sum(len(r["resultat"]) for r in resultats) == 4800
 
 
 def test_client_transmet_echanges_et_isole_taches(monkeypatch):
@@ -54,7 +74,7 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     assert requests[1][3]["role"] == "assistant"
     assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
     assert "aucun resultat" in requests[1][4]["content"]
-    assert "action supplementaire utile ou fin" in requests[1][5]["content"]
+    assert "Next expected action" not in requests[1][5]["content"]
 
 
 def test_aucun_blocage_de_repetition():
@@ -81,7 +101,7 @@ def test_limite_generation_reprise_bornee(monkeypatch):
     assert client.prochaine_action("test", []) == {"fin": "ok"}
     assert len(calls) == 2
     assert all(c["options"]["num_predict"] == 768 for c in calls)
-    assert "500 caracteres" in calls[1]["messages"][-1]["content"]
+    assert "500 characters" in calls[1]["messages"][-1]["content"]
     calls.clear()
     def toujours_long(path, charge):
         calls.append(charge)

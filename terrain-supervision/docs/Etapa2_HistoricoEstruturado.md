@@ -12,13 +12,15 @@ observações. Com o limite padrão de oito decisões, são no máximo sete pare
 anteriores apresentados à última decisão. O registro inclui tentativas recusadas,
 que são identificadas como recusadas, sem tratá-las como ações executadas.
 
-Para limitar textos longos, os resultados enviados continuam limitados a 600
-caracteres, agora com indicação explícita do corte. Os argumentos corps/contenu
-também são reduzidos a 600 caracteres com um marcador, apenas na representação
-enviada ao modelo. Destinatário, equipamento e busca são preservados.
+Para limitar textos longos, cada resultado enviado pode usar até 1.200
+caracteres. O conjunto de resultados no histórico usa no máximo 4.800
+caracteres: esse orçamento é dividido entre os resultados já existentes. Os
+argumentos corps/contenu também são reduzidos a 1.200 caracteres com um marcador,
+apenas na representação enviada ao modelo. Destinatário, equipamento e busca são
+preservados. Cada resultado informa `resultat_tronque` e
+`limite_resultat_modele`, para distinguir uma carga vista de uma carga cortada.
 O registro completo permanece disponível no log; o histórico estruturado também
-guarda os textos completos. Não há um limitador exato por tokens: entradas muito
-grandes ou aumento do limite de etapas exigirão reavaliar o orçamento de contexto.
+guarda os textos completos.
 
 O simulador mantém a mesma visão de observações textuais para preservar seus
 testes determinísticos. Chamadores antigos que passam uma lista de strings ao

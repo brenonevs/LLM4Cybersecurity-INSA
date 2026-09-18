@@ -70,8 +70,8 @@ que deve permanecer igual nas comparações posteriores.
 ## Estado atualizado da tarefa — etapa 5
 
 Depois de cada ferramenta, o cliente calcula e envia um estado da tarefa. Ele
-separa obrigações terminadas das que continuam pendentes e indica a próxima ação
-esperada. O cálculo usa apenas o histórico estruturado de chamadas autorizadas:
+separa obrigações terminadas das que continuam pendentes, sem indicar a próxima
+ação esperada. O cálculo usa apenas o histórico estruturado de chamadas autorizadas:
 uma frase produzida pelo modelo não conclui uma obrigação, e uma chamada recusada
 também não.
 

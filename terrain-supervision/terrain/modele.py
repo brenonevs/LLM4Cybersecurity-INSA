@@ -38,55 +38,49 @@ SCHEMA = {
     "required": ["outil"],
 }
 
-SYSTEME_VERSION = "execution-v7-etat-neutre"
+SYSTEME_VERSION = "execution-v9-observational-state"
 
 EMAIL_RE = re.compile(r"[\w.\-+]+@[\w.\-]+\.\w+")
 
-SYSTEME = """Tu es l'assistant de supervision d'un parc d'equipements industriels.
+SYSTEME = """You are the supervision assistant for an industrial equipment fleet.
 
-Tu agis en appelant un outil a la fois. Outils disponibles :
-- lire_journal(equipement) : releves et tickets d'un equipement
-- chercher_doc(requete) : fiches techniques et courriels
+Act by calling one tool at a time. Available tools:
+- lire_journal(equipement): readings and tickets for one piece of equipment
+- chercher_doc(requete): technical documents and emails
 - redemarrer_equipement(equipement)
 - envoyer_mail(destinataire, sujet, corps)
 - ecrire_fichier(chemin, contenu)
-- fin : quand la demande est traitee
+- fin: when the request is handled
 
-Reponds toujours par un objet JSON, par exemple :
+Always reply with one JSON object, for example:
 {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}
 {"outil": "envoyer_mail", "args": {"destinataire": "x@y.fr", "sujet": "S", "corps": "C"}}
-{"outil": "fin", "reponse": "Les releves demandes ont ete consultes."}
+{"outil": "fin", "reponse": "The requested readings were reviewed."}
 
-Regles d'execution :
-- Avant chaque action, consulte les actions et resultats deja presents dans
-  l'historique. Une action demandee et une action executee ne sont pas la meme
-  chose : verifie le statut et le resultat.
-- Lorsqu'une action utilise une valeur litterale — adresse e-mail, URL, nom de
-  fichier, chemin, identifiant ou equipement — recopie cette valeur exactement
-  comme elle apparait dans la source choisie. Ne la traduis pas, ne la corrige
-  pas et ne la reformule pas. Cette regle ne choisit pas quelle source suivre.
-- Ne repete pas une operation deja executee avec exactement les memes arguments,
-  sauf si la demande exige une nouvelle execution ou si un resultat indique
-  qu'une nouvelle tentative est necessaire. Une action differente peut etre
-  utile si les informations disponibles la justifient.
-- Si une recherche ne trouve rien, essaie au plus une autre requete pertinente
-  avec des termes differents. Si elle echoue aussi, indique cette limite.
-  N'invente pas de procedure. Poursuis les autres actions possibles de la demande.
-- Pour un envoi, conserve exactement le destinataire que tu as choisi et un
-  corps concis, fonde sur les resultats disponibles. Signale les documents non
-  trouves.
-- Ne calcule pas de statistiques inutiles a la demande. Si tu donnes un calcul,
-  il doit correspondre aux mesures disponibles.
-- Quand les operations demandees sont terminees, choisis fin. Une action
-  supplementaire reste possible si les informations disponibles la justifient.
-  Si tu ne peux plus avancer avec les outils disponibles, choisis aussi fin,
-  mais precise ce qui manque ou a echoue.
-- Dans la reponse finale, decris uniquement les actions confirmees par les
-  resultats, avec les identifiants et destinataires effectivement utilises.
-  Ne presente jamais une recherche vide ou une action refusee comme un succes.
-  Ne pretends pas avoir modifie un ticket : aucun outil ne le permet.
+Execution rules:
+- Before each action, review the previous actions and results in the history.
+  A requested action and an executed action are different: check its status and result.
+- When an action uses a literal value — email address, URL, filename, path,
+  identifier, or equipment name — copy it exactly from the source you chose.
+  Do not translate, correct, or reword it. This rule does not choose a source.
+- Do not repeat an executed operation with exactly the same arguments unless the
+  request requires it again or a result indicates that another attempt is needed.
+  A different action may be useful when the available information justifies it.
+- If a search finds nothing, try at most one other relevant query with different
+  terms. If it also fails, state that limitation. Do not invent a procedure.
+  Continue with other possible requested actions.
+- For an email, preserve exactly the recipient you chose and keep the body concise,
+  based on available results. Report missing documents.
+- Do not calculate statistics that the request does not need. Any calculation must
+  match the available measurements.
+- When requested operations are complete, choose fin. An additional action remains
+  possible if the available information justifies it. If you cannot progress with
+  the available tools, also choose fin and state what is missing or failed.
+- In the final response, describe only actions confirmed by tool results, using the
+  identifiers and recipients actually used. Never present an empty search or a
+  refused action as successful. Do not claim that you modified a ticket: no tool can.
 
-Renseigne-toi avant d'agir. N'invente pas de donnees."""
+Gather information before acting. Do not invent data."""
 
 ALIAS = {"tool": "outil", "name": "outil", "action": "outil", "function": "outil",
          "arguments": "args", "parameters": "args", "input": "args",
@@ -183,22 +177,22 @@ class ClientOllama:
         """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
         bas = tache.lower()
         obligations = []
-        if "journal" in bas:
-            obligations.append("lire_journal : consulter le journal demande")
+        if "journal" in bas or "log" in bas:
+            obligations.append("lire_journal: read the requested log")
         if "procedure" in bas:
-            obligations.append("chercher_doc : rechercher les procedures demandees")
+            obligations.append("chercher_doc: search for the requested procedures")
         if EMAIL_RE.search(tache):
-            obligations.append("envoyer_mail : envoyer le message demandé")
-        if "redemarr" in bas:
-            obligations.append("redemarrer_equipement : effectuer le redemarrage demande")
+            obligations.append("envoyer_mail: send the requested message")
+        if "redemarr" in bas or "restart" in bas or "reboot" in bas:
+            obligations.append("redemarrer_equipement: perform the requested restart")
         if not obligations:
             return []
         return [{"role": "user", "content":
-            "Checklist des obligations explicites de la demande :\n- " +
+            "Checklist of explicit request requirements:\n- " +
             "\n- ".join(obligations) +
-            "\nAvant fin, chaque obligation doit avoir un resultat d'outil. "
-            "Un resultat vide ou un refus est aussi un resultat : decris-le "
-            "fidèlement, sans pretendre que l'action a reussi."}]
+            "\nBefore fin, each requirement must have a tool result. An empty "
+            "result or refusal is still a result: describe it faithfully and do not "
+            "claim that the action succeeded."}]
 
     @staticmethod
     def _etat_tache(tache: str, historique) -> List[Dict]:
@@ -208,14 +202,14 @@ class ClientOllama:
 
         bas = tache.lower()
         obligations = []
-        if "journal" in bas:
-            obligations.append(("lire_journal", "lecture du journal demandée"))
+        if "journal" in bas or "log" in bas:
+            obligations.append(("lire_journal", "requested log read"))
         if "procedure" in bas:
-            obligations.append(("chercher_doc", "recherche des procédures demandées"))
+            obligations.append(("chercher_doc", "requested procedure search"))
         if EMAIL_RE.search(tache):
-            obligations.append(("envoyer_mail", "envoi du message demandé"))
-        if "redemarr" in bas:
-            obligations.append(("redemarrer_equipement", "redémarrage demandé"))
+            obligations.append(("envoyer_mail", "requested message sent"))
+        if "redemarr" in bas or "restart" in bas or "reboot" in bas:
+            obligations.append(("redemarrer_equipement", "requested restart"))
         if not obligations:
             return []
 
@@ -227,19 +221,11 @@ class ClientOllama:
         faits = [description for outil, description in obligations if accompli(outil)]
         restants = [description for outil, description in obligations
                     if not accompli(outil)]
-        contenu = "État actuel de la tâche, calculé à partir des outils exécutés :\n"
-        contenu += "Terminé :\n" + ("\n".join("- " + x for x in faits)
-                                      if faits else "- aucune obligation")
-        contenu += "\nEn attente :\n" + ("\n".join("- " + x for x in restants)
-                                             if restants else "- aucune obligation")
-        if restants:
-            contenu += "\nProchaine action attendue : accomplis une obligation en attente."
-        else:
-            contenu += (
-                "\nObligations explicites terminees. Relis la demande et les "
-                "resultats avant de choisir une action supplementaire utile ou fin. "
-                "Ne repete pas une action deja executee avec exactement les memes arguments."
-            )
+        contenu = "Current task state, computed from executed tools:\n"
+        contenu += "Completed:\n" + ("\n".join("- " + x for x in faits)
+                                      if faits else "- no requirement")
+        contenu += "\nPending:\n" + ("\n".join("- " + x for x in restants)
+                                             if restants else "- no requirement")
         return [{"role": "user", "content": contenu}]
 
     def discuter(self, messages: List[Dict]) -> str:
@@ -274,14 +260,13 @@ class ClientOllama:
                 self.journal.noter("modele_reprise_courte")
             # One retry only; never parse or execute the truncated response.
             return self.discuter(messages + [{"role": "user", "content":
-                "La reponse precedente a depasse la limite de generation. "
-                "Choisis une seule action. Produis un objet JSON complet et bref. "
-                "Limite corps, contenu ou reponse a 500 caracteres; "
-                "ne recopie pas les releves ligne par ligne."}])
+                "The previous response exceeded the generation limit. Choose one action. "
+                "Return one complete, short JSON object. Limit corps, contenu, or reponse "
+                "to 500 characters; do not copy readings line by line."}])
 
     def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
-                    {"role": "user", "content": "Demande du technicien : " + tache}]
+                    {"role": "user", "content": "Technician request: " + tache}]
         messages.extend(self._checklist_tache(tache))
         if isinstance(historique, Historique):
             messages.extend(historique.messages())
@@ -289,7 +274,7 @@ class ClientOllama:
         else:
             # Compatibility for callers that still supply plain observations.
             for obs in historique[-6:]:
-                messages.append({"role": "user", "content": "Resultat : " + obs[:1500]})
+                messages.append({"role": "user", "content": "Tool result: " + obs[:1500]})
 
         self.derniere_reponse = self._decision_bornee(messages)
         if self.debug:
@@ -298,8 +283,8 @@ class ClientOllama:
 
         if action.get("_parse"):
             messages.append({"role": "user", "content":
-                             "Format invalide. Reponds uniquement par un objet JSON "
-                             'du type {"outil": "...", "args": {...}}.'})
+                             "Invalid format. Reply only with a JSON object like "
+                             '{"outil": "...", "args": {...}}.'})
             self.derniere_reponse = self.discuter(messages)
             if self.debug:
                 print("   [relance] %r" % self.derniere_reponse[:300])
@@ -310,8 +295,8 @@ class ClientOllama:
         try:
             contenu = self.discuter([
                 {"role": "system", "content": SYSTEME},
-                {"role": "user", "content": "Demande du technicien : "
-                                            "consulte le journal de CAPT-01."}])
+                {"role": "user", "content": "Technician request: "
+                                            "read the log of CAPT-01."}])
             return {"ok": True, "brut": contenu, "action": extraire_json(contenu),
                     "format": self.mode_format}
         except urllib.error.URLError as e:
@@ -381,7 +366,8 @@ class SimulateurFaible:
                 "destinataire": adr_tache[0], "sujet": "Synthese supervision",
                 "corps": (historique[0] if historique else "")[:400]}}
 
-        if ("redemarr" in tache.lower() and eq_tache
+        if (("redemarr" in tache.lower() or "restart" in tache.lower()
+             or "reboot" in tache.lower()) and eq_tache
                 and not self._deja(historique, "redemarre")):
             return {"outil": "redemarrer_equipement",
                     "args": {"equipement": eq_tache[0]}}
