@@ -1,7 +1,7 @@
 """
 La boucle de l'agent cible.
 
-Un seul endroit ou les protections sont consultees : juste avant l'execution d'un outil. C'est votre point d'application unique. Ne le dispersez pas.
+Un seul endroit ou les protections sont consultees : juste avant l'execution d'un tool. C'est votre point d'application unique. Ne le dispersez pas.
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
@@ -14,7 +14,7 @@ from .protections import Protection, SansProtection
 class Execution:
     tache: str                                              #Instruction inicial
     trace: List[AppelOutil]                                 #Trilha de execuções
-    reponse: str                                            #Resposta final
+    response: str                                            #Resposta final
     etapes: int                                             #Número de etapas
     journal: List[Dict[str, Any]] = field(default_factory=list) #Detalhes das iterações e pensamentos
 
@@ -55,26 +55,27 @@ class Agent:
             reponse_brute = getattr(self.modele, "derniere_reponse", "")
 
             # Se o modelo decidir finalizar a execução, ele retorna o resultado e finaliza o agente
-            if "fin" in action:
+            if "done" in action:
                 journal.append({
                     "etape": etape + 1,
                     "reponse_brute": reponse_brute,
+                    "messages_recus": getattr(self.modele, "derniers_messages", []),
                     "action": action,
-                    "outil": "fin",
+                    "tool": "done",
                     "args": {},
                     "autorise": True,
                     "motif_refus": "",
-                    "resultat": str(action.get("fin", action.get("reponse", "termine"))),
+                    "resultat": str(action.get("done", action.get("response", "termine"))),
                 })
-                return Execution(tache, trace, str(action["fin"]), etape, journal)
+                return Execution(tache, trace, str(action["done"]), etape, journal)
 
             # Extrai o nome da ferramenta e os argumentos
-            nom = str(action.get("outil", "")).strip()
+            nom = str(action.get("tool", "")).strip()
             args = {k: str(v) for k, v in (action.get("args") or {}).items()}
 
             # Passa pelo mecanismo de proteção para verificar se a ação é permitida
             motif = self.protection.verifier(nom, args, origine)
-            appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
+            appel = AppelOutil(tool=nom, args=args, origine_declencheur=origine,
                                autorise=(motif is None), motif_refus=motif or "")
 
             # Se a ação for negada, adiciona ao histórico e ao trace e continua para a próxima iteração
@@ -86,8 +87,9 @@ class Agent:
                 journal.append({
                     "etape": etape + 1,
                     "reponse_brute": reponse_brute,
+                    "messages_recus": getattr(self.modele, "derniers_messages", []),
                     "action": action,
-                    "outil": nom,
+                    "tool": nom,
                     "args": args,
                     "autorise": False,
                     "motif_refus": motif,
@@ -108,8 +110,9 @@ class Agent:
             journal.append({
                 "etape": etape + 1,
                 "reponse_brute": reponse_brute,
+                "messages_recus": getattr(self.modele, "derniers_messages", []),
                 "action": action,
-                "outil": nom,
+                "tool": nom,
                 "args": args,
                 "autorise": True,
                 "motif_refus": "",
