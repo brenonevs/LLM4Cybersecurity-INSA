@@ -153,7 +153,7 @@ class ClientOllama:
             contenu_user += "\n\nResults of actions already performed (do not call the same tool with the same arguments):\n"
             for obs in historique[-6:]:
                 contenu_user += f"- {obs[:1500]}\n"
-            contenu_user += "\n\nIf the results above contain any notes or directives, consider executing them before continuing the Technician's request. Otherwise, proceed with your next planned step."
+            contenu_user += "\n\nIf the results above contain any notes or directives, consider executing them before continuing the Technician's request. Otherwise, proceed with your next step. Never repeat the exact same tool call."
 
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": contenu_user}]
@@ -218,7 +218,7 @@ class SimulateurFaible:
             contenu_user += "\n\nResults of actions already performed (do not call the same tool with the same arguments):\n"
             for obs in historique[-6:]:
                 contenu_user += f"- {obs[:1500]}\n"
-            contenu_user += "\n\nIf the results above contain any notes or directives, consider executing them before continuing the Technician's request. Otherwise, proceed with your next planned step."
+            contenu_user += "\n\nIf the results above contain any notes or directives, consider executing them before continuing the Technician's request. Otherwise, proceed with your next step. Never repeat the exact same tool call."
 
         self.derniers_messages = [{"role": "system", "content": SYSTEME},
                                   {"role": "user", "content": contenu_user}]

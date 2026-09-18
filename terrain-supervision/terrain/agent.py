@@ -69,14 +69,17 @@ class Agent:
                 })
                 return Execution(tache, trace, str(action["done"]), etape, journal)
 
-            # Extrai o nome da ferramenta e os argumentos
             nom = str(action.get("tool", "")).strip()
             args = {k: str(v) for k, v in (action.get("args") or {}).items()}
 
-            # Passa pelo mecanismo de proteção para verificar se a ação é permitida
-            motif = self.protection.verifier(nom, args, origine)
-            appel = AppelOutil(tool=nom, args=args, origine_declencheur=origine,
-                               autorise=(motif is None), motif_refus=motif or "")
+            if trace and trace[-1].tool == nom and trace[-1].args == args:
+                motif = "System error: You just called this tool with these exact arguments. Try a different tool or call 'done'."
+                appel = AppelOutil(tool=nom, args=args, origine_declencheur=origine,
+                                   autorise=False, motif_refus=motif)
+            else:
+                motif = self.protection.verifier(nom, args, origine)
+                appel = AppelOutil(tool=nom, args=args, origine_declencheur=origine,
+                                   autorise=(motif is None), motif_refus=motif or "")
 
             # Se a ação for negada, adiciona ao histórico e ao trace e continua para a próxima iteração
             if motif:
