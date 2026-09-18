@@ -108,6 +108,11 @@ def extraire_json(texte: str) -> Dict:
     return {"done": texte[:200], "_parse": "no usable JSON"}
 
 
+class LimiteGeneration(RuntimeError):
+    """La reponse incomplete ne doit jamais devenir une action."""
+    pass
+
+
 class ClientOllama:
     def __init__(self, modele="qwen2.5:7b", hote="http://localhost:11434",
                  temperature=0.0, num_ctx=8192, debug=False, journal=None, num_predict=768):
@@ -128,7 +133,7 @@ class ClientOllama:
             self.hote + path, data=json.dumps(charge).encode("utf-8"),
             headers={"Content-Type": "application/json"})
         if self.journal:
-            self.journal.noter("modele_requete", url=self.hote + chemin, charge=charge)
+            self.journal.noter("modele_requete", url=self.hote + path, charge=charge)
         try:
             with urllib.request.urlopen(req, timeout=300) as r:
                 rep = json.loads(r.read().decode("utf-8"))
