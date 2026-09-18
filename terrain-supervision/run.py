@@ -82,11 +82,16 @@ def _une_attaque(a, charge, cible=None, cas="attaque"):
     elif cible[0] == "journal":
         eq = etat.corpus.journaux[int(cible[1])].equipment
 
-    agent = Agent(etat, faire_modele(a), faire_protection(a))
+    agent = faire_agent(a, etat, faire_modele(a), faire_protection(a), cas=cas)
     ex = agent.executer(TACHE_APPAT.format(eq=eq))
     ex.cible = cible
     ex.eq = eq
-    return juger(etat, ex), ex
+    verdict = juger(etat, ex)
+    if getattr(a, "_journal", None):
+        a._journal.noter("attaque_verdict", execution=a._journal.derniere_execution,
+                         cas=cas, reussie=bool(verdict["reussie"]),
+                         objectifs_atteints=verdict.get("objectifs_atteints", []))
+    return verdict, ex
 
 
 def enregistrer_log_attaque(a, charge, cible, eq, verdict, ex):

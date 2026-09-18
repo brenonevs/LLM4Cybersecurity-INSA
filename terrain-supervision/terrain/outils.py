@@ -109,7 +109,7 @@ class Outils:
 
     def appeler(self, nom: str, args: Dict[str, Any]) -> Fragment:
         if nom not in self.NOMS:
-            return Fragment(f"Outil inconnu : {nom}", "systeme", "erreur")
+            return Fragment(f"Unknown tool : {nom}", "system", "error")
         attendus = self.SCHEMA[nom]
         propres = {k: str(args.get(k, "")) for k in attendus}
         return getattr(self, nom)(**propres)

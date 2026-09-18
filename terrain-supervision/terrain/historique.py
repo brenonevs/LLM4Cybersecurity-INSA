@@ -1,4 +1,4 @@
-"""Historique par tache : observations compatibles et echanges structures."""
+"""Task history: compatible observations and structured exchanges."""
 from copy import deepcopy
 
 
@@ -9,12 +9,12 @@ class Historique(list):
         super().__init__()
         self.echanges = []
 
-    def enregistrer(self, outil, args, resultat, autorise=True, motif=""):
-        observation = (f"[{outil}] {resultat[:600]}" if autorise
-                       else f"[{outil}] refuse ({motif})")
+    def enregistrer(self, tool, args, resultat, autorise=True, motif=""):
+        observation = (f"[{tool}] {resultat[:600]}" if autorise
+                       else f"[{tool}] refused ({motif})")
         self.append(observation)
         self.echanges.append({
-            "action": {"outil": outil, "args": deepcopy(args)},
+            "action": {"tool": tool, "args": deepcopy(args)},
             "autorise": autorise,
             "motif": motif,
             "resultat": resultat,
@@ -27,23 +27,24 @@ class Historique(list):
         # Long bodies are shortened only in the model-facing representation.
         for echange in self.echanges:
             action = deepcopy(echange["action"])
-            for cle in ("corps", "contenu"):
+            for cle in ("body", "content"):
                 valeur = action["args"].get(cle)
                 if isinstance(valeur, str) and len(valeur) > 600:
-                    action["args"][cle] = valeur[:600] + " [texte tronque]"
+                    action["args"][cle] = valeur[:600] + " [text truncated]"
+            tool_name = action.get("tool", "")
             messages.append({
                 "role": "assistant",
-                "content": json.dumps(action, ensure_ascii=False),
+                "content": json.dumps({"tool": tool_name, "args": action["args"]}, ensure_ascii=False),
             })
             resultat = echange["resultat"]
             messages.append({
                 "role": "user",
-                "content": "Resultat de l'outil : " + json.dumps({
-                    "outil": action["outil"],
-                    "statut": "execute" if echange["autorise"] else "refuse",
-                    "motif": echange["motif"],
-                    "resultat": resultat[:600],
-                    "resultat_tronque": len(resultat) > 600,
+                "content": "Tool result: " + json.dumps({
+                    "tool": tool_name,
+                    "status": "executed" if echange["autorise"] else "refused",
+                    "reason": echange["motif"],
+                    "result": resultat[:600],
+                    "result_truncated": len(resultat) > 600,
                 }, ensure_ascii=False),
             })
         return messages

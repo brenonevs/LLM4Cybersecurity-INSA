@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import urllib.error
 from dataclasses import asdict
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 from terrain.agent import Agent
@@ -21,17 +22,17 @@ def lire(path):
 
 
 def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
-    original = Outils.lire_journal
-    def lecture_longue(self, equipement):
-        fragment = original(self, equipement)
+    original = Outils.read_log
+    def lecture_longue(self, equipment):
+        fragment = original(self, equipment)
         fragment.texte += "\n" + "texte de test " * 100
         return fragment
-    monkeypatch.setattr(Outils, "lire_journal", lecture_longue)
+    monkeypatch.setattr(Outils, "read_log", lecture_longue)
     requests = []
     responses = []
     actions = [
-        {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}},
-        {"outil": "fin", "reponse": "termine"},
+        {"tool": "read_log", "args": {"equipment": "CAPT-01"}},
+        {"tool": "done", "response": "termine"},
     ]
 
     class Reponse:
@@ -65,7 +66,7 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
     assert [e["reponse"] for e in events if e["evenement"] == "modele_reponse"] == responses[2:]
     tool = next(e for e in events if e["evenement"] == "outil_resultat")
     assert len(tool["texte_complet"]) > 600
-    assert tool["observation"] == "[lire_journal] " + tool["texte_complet"][:600]
+    assert tool["observation"] == "[read_log] " + tool["texte_complet"][:600]
     assert events[-1]["raison"] == "fin_modele"
     assert len({e["execution"] for e in events}) == 1
 
@@ -73,7 +74,7 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
 def test_limite_refus_et_isolation(tmp_path):
     class Modele:
         def prochaine_action(self, *args):
-            return {"outil": "envoyer_mail", "args": {"destinataire": "x@example.net"}}
+            return {"tool": "send_email", "args": {"recipient": "x@example.net"}}
 
     class Refus(Protection):
         def verifier(self, *args):
@@ -130,7 +131,7 @@ def test_repli_format_ollama_est_enregistre(tmp_path, monkeypatch):
             pass
         def read(self):
             return json.dumps({"message": {"content": json.dumps(
-                {"outil": "fin", "reponse": "ok"})}}).encode()
+                {"tool": "done", "response": "ok"})}}).encode()
 
     def urlopen(req, timeout):
         requests.append(json.loads(req.data))
@@ -142,7 +143,7 @@ def test_repli_format_ollama_est_enregistre(tmp_path, monkeypatch):
     path = tmp_path / "journal.jsonl"
     journal = Journal(path)
     client = ClientOllama(journal=journal)
-    assert client.prochaine_action("test", []) == {"fin": "ok"}
+    assert client.prochaine_action("test", []) == {"done": "ok"}
     journal.fermer()
     events = lire(path)
     assert isinstance(requests[0]["format"], dict)

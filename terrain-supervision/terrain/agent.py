@@ -59,21 +59,27 @@ class Agent:
         self.protection.reinitialiser()
         historique = Historique()
         trace: List[AppelOutil] = []
-        journal: List[Dict[str, Any]] = []
+        journal_local: List[Dict[str, Any]] = []
         # Origine de la demande initiale. Le suivi de l'origine au fil des
         # lectures, s'il est pertinent, releve de la protection.
         origine = "utilisateur"
 
         # Loop de execução
         for etape in range(self.max_etapes):
+            if self.journal:
+                self.journal.etape = etape + 1
+
             # O modelo recebe o objetivo (tache) e o histórico (memória do agente) 
             # e decide a próxima ação.
             action = self.modele.prochaine_action(tache, historique)
             reponse_brute = getattr(self.modele, "derniere_reponse", "")
 
-            # Se o modelo decidir finalizar a execução, ele retorna o resultado e finaliza o agente
+            # If model decides to finish execution, return result and stop
             if "done" in action:
-                journal.append({
+                res_done = str(action.get("done", action.get("response", "done")))
+                if self.journal:
+                    self.journal.terminer("fin_modele", len(trace), res_done)
+                journal_local.append({
                     "etape": etape + 1,
                     "reponse_brute": reponse_brute,
                     "messages_recus": getattr(self.modele, "derniers_messages", []),
@@ -82,26 +88,32 @@ class Agent:
                     "args": {},
                     "autorise": True,
                     "motif_refus": "",
-                    "resultat": str(action.get("done", action.get("response", "termine"))),
+                    "resultat": res_done,
                 })
-                return Execution(tache, trace, str(action["done"]), etape, journal)
+                return Execution(tache, trace, res_done, etape, journal_local)
 
-            # Extrai o nome da ferramenta e os argumentos
+            # Extract tool name and arguments
             nom = str(action.get("tool", "")).strip()
             args = {k: str(v) for k, v in (action.get("args") or {}).items()}
 
             # Passa pelo mecanismo de proteção para verificar se a ação é permitida
             motif = self.protection.verifier(nom, args, origine)
+            if self.journal:
+                self.journal.noter("outil_decision", outil=nom, args=args,
+                                   autorise=(motif is None), motif=motif)
+
             appel = AppelOutil(tool=nom, args=args, origine_declencheur=origine,
                                autorise=(motif is None), motif_refus=motif or "")
 
             # Se a ação for negada, adiciona ao histórico e ao trace e continua para a próxima iteração
             if motif:
+                if self.journal:
+                    self.journal.noter("outil_refus", outil=nom, args=args, motif=motif)
                 appel.resultat = f"REFUSE : {motif}"
                 trace.append(appel)
                 self.etat.trace.append(appel)
-                historique.append(f"[{nom}] refuse ({motif})")
-                journal.append({
+                historique.enregistrer(nom, args, appel.resultat, autorise=False, motif=motif)
+                journal_local.append({
                     "etape": etape + 1,
                     "reponse_brute": reponse_brute,
                     "messages_recus": getattr(self.modele, "derniers_messages", []),
@@ -119,12 +131,17 @@ class Agent:
             # Observa o fragmento para atualizar a memória do agente
             self.protection.observer(fragment)
 
+            if self.journal:
+                self.journal.noter("outil_resultat", outil=nom, args=args,
+                                   texte_complet=fragment.texte,
+                                   observation=f"[{nom}] {fragment.texte[:600]}")
+
             # Adiciona o resultado ao trace e ao histórico
             appel.resultat = fragment.texte[:2000]
             trace.append(appel)
             self.etat.trace.append(appel)
-            historique.append(f"[{nom}] {fragment.texte[:600]}")
-            journal.append({
+            historique.enregistrer(nom, args, fragment.texte, autorise=True, motif="")
+            journal_local.append({
                 "etape": etape + 1,
                 "reponse_brute": reponse_brute,
                 "messages_recus": getattr(self.modele, "derniers_messages", []),
@@ -137,4 +154,6 @@ class Agent:
             })
 
         # Se o loop terminar sem retornar, significa que atingiu o limite de etapas
-        return Execution(tache, trace, "(limite d'etapes atteinte)", self.max_etapes, journal)
+        if self.journal:
+            self.journal.terminer("limite_etapes", len(trace), "(limite d'etapes atteinte)")
+        return Execution(tache, trace, "(limite d'etapes atteinte)", self.max_etapes, journal_local)
