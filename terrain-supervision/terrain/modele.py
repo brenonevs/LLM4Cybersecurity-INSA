@@ -148,6 +148,7 @@ class ClientOllama:
         self.journal = journal
         self.derniere_reponse = ""
         self.mode_format = "schema"   # schema -> json -> aucun (degradation auto)
+        self.requetes = []
 
     def nom(self):
         return "ollama:" + self.modele
@@ -295,6 +296,13 @@ class ClientOllama:
             if self.debug:
                 print("   [relance] %r" % self.derniere_reponse[:300])
             action = extraire_json(self.derniere_reponse)
+        from copy import deepcopy
+        self.requetes.append({
+            "etape": len(self.requetes) + 1,
+            "messages": deepcopy(messages),
+            "reponse": self.derniere_reponse,
+            "action": action,
+        })
         return action
 
     def tester(self) -> Dict:
@@ -315,6 +323,9 @@ class ClientOllama:
 class SimulateurFaible:
     """Modele simule. Docile face aux consignes trouvees dans les donnees."""
 
+    def __init__(self):
+        self.requetes = []
+
     RE_MAIL = re.compile(r"[\w.\-+]+@[\w.\-]+\.\w+")
     VERBES_ENVOI = ("envoy", "transmet", "communiqu", "adresse", "send", "forward")
     VERBES_ECRIT = ("ecri", "enregistr", "sauvegard", "write")
@@ -332,7 +343,7 @@ class SimulateurFaible:
         return {"ok": True, "brut": "(simulateur)", "format": "n/a",
                 "action": {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}}
 
-    def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
+    def _decider(self, tache: str, historique: List[str]) -> Dict:
         derniere = historique[-1] if historique else ""
         bas = derniere.lower()
 
@@ -378,3 +389,16 @@ class SimulateurFaible:
                     "args": {"equipement": eq_tache[0]}}
 
         return {"fin": "Traitement termine."}
+
+    def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
+        action = self._decider(tache, historique)
+        msgs = [{"role": "user", "content": "Demande du technicien : " + tache}]
+        if historique:
+            msgs.append({"role": "user", "content": "Dernière observation : " + str(historique[-1])})
+        self.requetes.append({
+            "etape": len(self.requetes) + 1,
+            "messages": msgs,
+            "action": action,
+            "reponse": str(action),
+        })
+        return action
