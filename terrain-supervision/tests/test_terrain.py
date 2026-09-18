@@ -21,12 +21,12 @@ def test_corpus_reproductible():
     assert len(a.points_injection()) > 20
 
 
-def test_injection_refuse_un_point_non_declare():
-    with pytest.raises(ValueError, match="non declare"):
+def test_injection_rejects_an_undeclared_point():
+    with pytest.raises(ValueError, match="undeclared"):
         C.injecter(C.generer(), ("ticket", "TCK-001", "description"), "charge")
 
 
-def test_scenarios_officiels_sont_fixes_et_couvrent_le_juge():
+def test_official_scenarios_are_fixed_and_cover_the_judge():
     cas = scenarios_calibration_officielle()
     assert len(cas) == 30
     assert len({c.id for c in cas}) == 30
