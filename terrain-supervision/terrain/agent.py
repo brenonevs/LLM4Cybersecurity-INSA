@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from .outils import AppelOutil, Etat, Fragment, Outils
 from .protections import Protection, SansProtection
+from .historique import Historique
 
 
 @dataclass
@@ -28,19 +29,35 @@ Recebe
 """
 class Agent:
     def __init__(self, etat: Etat, modele, protection: Protection = None,
-                 max_etapes: int = 8):
+                 max_etapes: int = 8, journal=None, cas="execution"):
         self.etat = etat
         self.outils = Outils(etat)
         self.modele = modele
         self.protection = protection or SansProtection()
         self.max_etapes = max_etapes
+        self.journal, self.cas = journal, cas
 
     """
     Recebe uma tache, reinicia a memória da proteção, o histórico (O que foi lido pelo LLM) e o trace (as ações) 
     """
     def executer(self, tache: str) -> Execution:
+        if self.journal:
+            self.journal.commencer(self.cas, tache, self.max_etapes)
+        debut_trace = len(self.etat.trace)
+        try:
+            return self._executer(tache)
+        except BaseException as erreur:
+            if self.journal:
+                self.journal.noter("execution_erreur", type=type(erreur).__name__,
+                                   message=str(erreur))
+                self.journal.terminer("interruption" if isinstance(erreur, KeyboardInterrupt)
+                                      else "erreur",
+                                      len(self.etat.trace) - debut_trace, str(erreur))
+            raise
+
+    def _executer(self, tache: str) -> Execution:
         self.protection.reinitialiser()
-        historique: List[str] = []
+        historique = Historique()
         trace: List[AppelOutil] = []
         journal: List[Dict[str, Any]] = []
         # Origine de la demande initiale. Le suivi de l'origine au fil des

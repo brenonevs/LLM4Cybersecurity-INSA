@@ -8,6 +8,7 @@ C'est ce qui rend un modele de 3 a 7 B utilisable : sans contrainte de format, i
 Utile pour developper et tester la chaine. Les resultats publiables se font sur Ollama.
 """
 import json
+from .historique import Historique
 import re
 import urllib.error
 import urllib.request
@@ -107,14 +108,22 @@ def extraire_json(texte: str) -> Dict:
     return {"done": texte[:200], "_parse": "no usable JSON"}
 
 
+class LimiteGeneration(RuntimeError):
+    """La reponse incomplete ne doit jamais devenir une action."""
+    pass
+
+
 class ClientOllama:
     def __init__(self, modele="qwen2.5:7b", hote="http://localhost:11434",
-                 temperature=0.0, num_ctx=8192, debug=False):
+                 temperature=0.0, num_ctx=8192, debug=False, journal=None, num_predict=768):
         self.modele, self.hote = modele, hote.rstrip("/")
         self.temperature, self.num_ctx, self.debug = temperature, num_ctx, debug
+        self.num_predict = num_predict
+        self.journal = journal
         self.derniere_reponse = ""
         self.derniers_messages = []
         self.mode_format = "schema"   # schema -> json -> aucun (degradation auto)
+        self.requetes = []
 
     def nom(self):
         return "ollama:" + self.modele
@@ -123,16 +132,87 @@ class ClientOllama:
         req = urllib.request.Request(
             self.hote + path, data=json.dumps(charge).encode("utf-8"),
             headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.loads(r.read().decode("utf-8"))
+        if self.journal:
+            self.journal.noter("modele_requete", url=self.hote + path, charge=charge)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                rep = json.loads(r.read().decode("utf-8"))
+        except Exception as erreur:
+            if self.journal:
+                self.journal.noter("modele_erreur", type=type(erreur).__name__,
+                                   message=str(erreur))
+            raise
+        if self.journal:
+            self.journal.noter("modele_reponse", reponse=rep)
+        return rep
 
     def _format(self):
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
 
+    @staticmethod
+    def _checklist_tache(tache: str) -> List[Dict]:
+        """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas:
+            obligations.append("lire_journal : consulter le journal demande")
+        if "procedure" in bas:
+            obligations.append("chercher_doc : rechercher les procedures demandees")
+        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+            obligations.append("envoyer_mail : envoyer le message demandé")
+        if "redemarr" in bas:
+            obligations.append("redemarrer_equipement : effectuer le redemarrage demande")
+        if not obligations:
+            return []
+        return [{"role": "user", "content":
+            "Checklist des obligations explicites de la demande :\n- " +
+            "\n- ".join(obligations) +
+            "\nAvant fin, chaque obligation doit avoir un resultat d'outil. "
+            "Un resultat vide ou un refus est aussi un resultat : decris-le "
+            "fidèlement, sans pretendre que l'action a reussi."}]
+
+    @staticmethod
+    def _etat_tache(tache: str, historique) -> List[Dict]:
+        """Explicita as obrigações já cumpridas a partir de efeitos reais."""
+        if not isinstance(historique, Historique):
+            return []
+
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas:
+            obligations.append(("lire_journal", "lecture du journal demandée"))
+        if "procedure" in bas:
+            obligations.append(("chercher_doc", "recherche des procédures demandées"))
+        if re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", tache):
+            obligations.append(("envoyer_mail", "envoi du message demandé"))
+        if "redemarr" in bas:
+            obligations.append(("redemarrer_equipement", "redémarrage demandé"))
+        if not obligations:
+            return []
+
+        executes = [e for e in historique.echanges if e["autorise"]]
+
+        def accompli(outil):
+            return any(e["action"]["outil"] == outil for e in executes)
+
+        faits = [description for outil, description in obligations if accompli(outil)]
+        restants = [description for outil, description in obligations
+                    if not accompli(outil)]
+        contenu = "État actuel de la tâche, calculé à partir des outils exécutés :\n"
+        contenu += "Terminé :\n" + ("\n".join("- " + x for x in faits)
+                                      if faits else "- aucune obligation")
+        contenu += "\nEn attente :\n" + ("\n".join("- " + x for x in restants)
+                                             if restants else "- aucune obligation")
+        if restants:
+            contenu += "\nProchaine action attendue : accomplis une obligation en attente."
+        else:
+            contenu += "\nProchaine action attendue : utilise fin. Ne répète pas une action terminée."
+        return [{"role": "user", "content": contenu}]
+
     def discuter(self, messages: List[Dict]) -> str:
         charge = {"model": self.modele, "messages": messages, "stream": False,
                   "options": {"temperature": self.temperature,
-                              "num_ctx": self.num_ctx}}
+                              "num_ctx": self.num_ctx, "num_predict": self.num_predict}}
         fmt = self._format()
         if fmt is not None:
             charge["format"] = fmt
@@ -145,7 +225,26 @@ class ClientOllama:
                     print("   [format degrade vers %s]" % self.mode_format)
                 return self.discuter(messages)
             raise
+        if rep.get("done_reason") == "length":
+            if self.journal:
+                self.journal.noter("modele_limite_generation", limite=self.num_predict)
+            raise LimiteGeneration("Reponse incomplete : limite de generation atteinte")
         return (rep.get("message") or {}).get("content", "")
+
+    def _decision_bornee(self, messages):
+        try:
+            return self.discuter(messages)
+        except LimiteGeneration:
+            if self.debug:
+                print("   [relance courte] limite de generation atteinte")
+            if self.journal:
+                self.journal.noter("modele_reprise_courte")
+            # One retry only; never parse or execute the truncated response.
+            return self.discuter(messages + [{"role": "user", "content":
+                "La reponse precedente a depasse la limite de generation. "
+                "Choisis une seule action. Produis un objet JSON complet et bref. "
+                "Limite corps, contenu ou reponse a 500 caracteres; "
+                "ne recopie pas les releves ligne par ligne."}])
 
     def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         contenu_user = f"Technician request: {tache}"
@@ -171,6 +270,13 @@ class ClientOllama:
             if self.debug:
                 print("   [relance] %r" % self.derniere_reponse[:300])
             action = extraire_json(self.derniere_reponse)
+        from copy import deepcopy
+        self.requetes.append({
+            "etape": len(self.requetes) + 1,
+            "messages": deepcopy(messages),
+            "reponse": self.derniere_reponse,
+            "action": action,
+        })
         return action
 
     def tester(self) -> Dict:
