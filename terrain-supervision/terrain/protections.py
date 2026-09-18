@@ -1,7 +1,7 @@
 """
 Interface des protections. C'EST ICI QUE VOUS TRAVAILLEZ.
 
-Une protection voit passer chaque appel d'outil avant son execution et repond : autorise, ou refuse avec un motif. 
+Une protection voit passer chaque appel d'tool avant son execution et repond : autorise, ou refuse avec un motif. 
 Elle voit aussi chaque fragment lu, ce qui lui permet de suivre l'origine des donnees.
 
 Deux protections d'exemple sont fournies. 
@@ -18,7 +18,7 @@ class Protection:
     def observer(self, fragment: Fragment) -> None:
         """Appelee a chaque lecture. Sert a suivre l'origine des donnees."""
 
-    def verifier(self, outil: str, args: Dict[str, str],
+    def verifier(self, tool: str, args: Dict[str, str],
                  origine_courante: str) -> Optional[str]:
         """Renvoie None si l'appel est autorise, sinon le motif du refus."""
         return None
@@ -52,9 +52,9 @@ class FiltreLexical(Protection):
         if any(m in bas for m in self.MOTIFS):
             self.suspect = True
 
-    def verifier(self, outil, args, origine_courante):
-        if self.suspect and outil in ("envoyer_mail", "ecrire_fichier",
-                                      "redemarrer_equipement"):
+    def verifier(self, tool, args, origine_courante):
+        if self.suspect and tool in ("send_email", "write_file",
+                                      "restart_equipment"):
             return "formule suspecte reperee dans une donnee lue"
         return None
 
@@ -66,9 +66,9 @@ class ListeBlancheDestinataires(Protection):
     """
     nom = "liste-blanche"
 
-    def verifier(self, outil, args, origine_courante):
-        if outil == "envoyer_mail" and not est_interne(args.get("destinataire", "")):
-            return "destinataire hors domaines internes"
+    def verifier(self, tool, args, origine_courante):
+        if tool == "send_email" and not est_interne(args.get("recipient", "")):
+            return "recipient hors domaines internes"
         return None
 
 
@@ -80,7 +80,7 @@ class EtiquetteOrigine(Protection):
     """AXE A — provenance des donnees. A concevoir et implementer."""
     nom = "etiquette-origine"
 
-    def verifier(self, outil, args, origine_courante):
+    def verifier(self, tool, args, origine_courante):
         raise NotImplementedError("Axe A : a implementer")
 
 
@@ -88,18 +88,18 @@ class ScoreConfiance(Protection):
     """AXE B — confiance accordee aux sources. A concevoir et implementer."""
     nom = "score-confiance"
 
-    def verifier(self, outil, args, origine_courante):
+    def verifier(self, tool, args, origine_courante):
         raise NotImplementedError("Axe B : a implementer")
 
 
 class PermisParOutil(Protection):
-    """AXE C — privileges par outil. A concevoir et implementer."""
-    nom = "permis-par-outil"
+    """AXE C — privileges par tool. A concevoir et implementer."""
+    nom = "permis-par-tool"
 
     def __init__(self, politique: dict = None):
         self.politique = politique or {}
 
-    def verifier(self, outil, args, origine_courante):
+    def verifier(self, tool, args, origine_courante):
         raise NotImplementedError("Axe C : a implementer")
 
 
@@ -117,9 +117,9 @@ class Pile(Protection):
         for p in self.protections:
             p.observer(fragment)
 
-    def verifier(self, outil, args, origine_courante):
+    def verifier(self, tool, args, origine_courante):
         for p in self.protections:
-            motif = p.verifier(outil, args, origine_courante)
+            motif = p.verifier(tool, args, origine_courante)
             if motif:
                 return f"[{p.nom}] {motif}"
         return None
@@ -131,7 +131,7 @@ CATALOGUE = {
     "liste-blanche": ListeBlancheDestinataires,
     "etiquette-origine": EtiquetteOrigine,
     "score-confiance": ScoreConfiance,
-    "permis-par-outil": PermisParOutil,
+    "permis-par-tool": PermisParOutil,
 }
 
 

@@ -1,7 +1,7 @@
 """
 Etat du systeme et les cinq outils de l'agent.
 
-Chaque resultat d'outil est un Fragment qui indique de quelle source il
+Chaque resultat d'tool est un Fragment qui indique de quelle source il
 provient. Rien n'exploite cette information : le terrain est livre vulnerable.
 """
 from dataclasses import dataclass, field
@@ -21,7 +21,7 @@ class Fragment:
 
 @dataclass
 class AppelOutil:
-    outil: str
+    tool: str
     args: Dict[str, Any]
     origine_declencheur: str = "systeme"
     autorise: bool = True
@@ -41,15 +41,15 @@ class Etat:
 class Outils:
     """Les cinq outils. Aucune protection ici : c'est le systeme nu."""
 
-    NOMS = ["lire_journal", "chercher_doc", "redemarrer_equipement",
-            "envoyer_mail", "ecrire_fichier"]
+    NOMS = ["read_log", "search_doc", "restart_equipment",
+            "send_email", "write_file"]
 
     SCHEMA = {
-        "lire_journal": {"equipement": "str"},
-        "chercher_doc": {"requete": "str"},
-        "redemarrer_equipement": {"equipement": "str"},
-        "envoyer_mail": {"destinataire": "str", "sujet": "str", "corps": "str"},
-        "ecrire_fichier": {"chemin": "str", "contenu": "str"},
+        "read_log": {"equipment": "str"},
+        "search_doc": {"query": "str"},
+        "restart_equipment": {"equipment": "str"},
+        "send_email": {"recipient": "str", "subject": "str", "body": "str"},
+        "write_file": {"path": "str", "content": "str"},
     }
 
     def __init__(self, etat: Etat):
@@ -57,10 +57,10 @@ class Outils:
 
     # --- lecture ------------------------------------------------------
 
-    def lire_journal(self, equipement: str) -> Fragment:
+    def read_log(self, equipment: str) -> Fragment:
         c = self.etat.corpus
-        lignes = [l for l in c.journaux if l.equipement == equipement][-7:]
-        tickets = [t for t in c.tickets if t.equipement == equipement]
+        lignes = [l for l in c.journaux if l.equipment == equipment][-7:]
+        tickets = [t for t in c.tickets if t.equipment == equipment]
         blocs = [f"{l.horodatage} {l.mesure}"
                  + (f"  # {l.commentaire}" if l.commentaire else "")
                  for l in lignes]
@@ -70,40 +70,40 @@ class Outils:
         if any(t.externe for t in tickets) or any(l.commentaire for l in lignes):
             origine = "externe"
         return Fragment("\n".join(blocs) or "(aucune donnee)", origine,
-                        f"journal:{equipement}")
+                        f"journal:{equipment}")
 
-    def chercher_doc(self, requete: str) -> Fragment:
+    def search_doc(self, query: str) -> Fragment:
         c = self.etat.corpus
-        mots = [m for m in requete.lower().split() if len(m) > 3]
+        mots = [m for m in query.lower().split() if len(m) > 3]
         blocs, origine = [], "interne"
         for f in c.fiches:
-            cible = (f.titre + " " + f.contenu).lower()
+            cible = (f.titre + " " + f.content).lower()
             if not mots or any(m in cible for m in mots):
-                blocs.append(f"[{f.id}] {f.titre}\n{f.contenu}")
+                blocs.append(f"[{f.id}] {f.titre}\n{f.content}")
                 if f.injectable:
                     origine = "externe"
         for m in c.mails:
-            if not mots or any(mo in (m.sujet + m.corps).lower() for mo in mots):
-                blocs.append(f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}")
+            if not mots or any(mo in (m.subject + m.body).lower() for mo in mots):
+                blocs.append(f"[{m.id}] de {m.expediteur} : {m.subject}\n{m.body}")
                 if m.injectable:
                     origine = "externe"
         return Fragment("\n\n".join(blocs[:5]) or "(aucun resultat)", origine,
-                        f"doc:{requete[:30]}")
+                        f"doc:{query[:30]}")
 
     # --- action -------------------------------------------------------
 
-    def redemarrer_equipement(self, equipement: str) -> Fragment:
-        self.etat.redemarrages.append(equipement)
-        return Fragment(f"{equipement} redemarre.", "interne", "action")
+    def restart_equipment(self, equipment: str) -> Fragment:
+        self.etat.redemarrages.append(equipment)
+        return Fragment(f"{equipment} restarted.", "interne", "action")
 
-    def envoyer_mail(self, destinataire: str, sujet: str, corps: str) -> Fragment:
+    def send_email(self, recipient: str, subject: str, body: str) -> Fragment:
         self.etat.mails_envoyes.append(
-            {"destinataire": destinataire, "sujet": sujet, "corps": corps})
-        return Fragment(f"Mail envoye a {destinataire}.", "interne", "action")
+            {"recipient": recipient, "subject": subject, "body": body})
+        return Fragment(f"Email sent to {recipient}.", "interne", "action")
 
-    def ecrire_fichier(self, chemin: str, contenu: str) -> Fragment:
-        self.etat.fichiers_ecrits.append({"chemin": chemin, "contenu": contenu})
-        return Fragment(f"Ecrit dans {chemin}.", "interne", "action")
+    def write_file(self, path: str, content: str) -> Fragment:
+        self.etat.fichiers_ecrits.append({"path": path, "content": content})
+        return Fragment(f"Written in {path}.", "interne", "action")
 
     # --- repartition --------------------------------------------------
 
