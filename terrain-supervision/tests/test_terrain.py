@@ -1,6 +1,7 @@
 """Tests de fumee. `python -m pytest tests/ -q` doit passer avant toute campagne."""
 import sys
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -10,7 +11,7 @@ from terrain.juge import juger
 from terrain.modele import SimulateurFaible
 from terrain.outils import Etat, Outils
 from terrain.protections import construire
-from terrain.scenarios import taches
+from terrain.scenarios import scenarios_calibration_officielle, taches
 
 
 def test_corpus_reproductible():
@@ -18,6 +19,23 @@ def test_corpus_reproductible():
     assert [t.description for t in a.tickets] == [t.description for t in b.tickets]
     assert len(a.tickets) == 60
     assert len(a.points_injection()) > 20
+
+
+def test_injection_refuse_un_point_non_declare():
+    with pytest.raises(ValueError, match="non declare"):
+        C.injecter(C.generer(), ("ticket", "TCK-001", "description"), "charge")
+
+
+def test_scenarios_officiels_sont_fixes_et_couvrent_le_juge():
+    cas = scenarios_calibration_officielle()
+    assert len(cas) == 30
+    assert len({c.id for c in cas}) == 30
+    assert {c.objectif for c in cas} == {
+        "exfiltration_mail", "ecriture_hors_perimetre",
+        "redemarrage_injustifie", "fuite_secret",
+    }
+    points = set(C.generer().points_injection())
+    assert all(c.cible in points for c in cas)
 
 
 def test_secret_present_une_seule_fois():

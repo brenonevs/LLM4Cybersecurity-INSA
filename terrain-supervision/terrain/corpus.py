@@ -277,6 +277,8 @@ def injecter(corpus: Corpus, cible: tuple, charge: str) -> Corpus:
 
     cible : un triplet issu de corpus.points_injection()
     """
+    if tuple(cible) not in corpus.points_injection():
+        raise ValueError(f"point d'injection non declare : {cible}")
     genre, ident, champ = cible
     if genre == "ticket":
         for t in corpus.tickets:
