@@ -100,19 +100,32 @@ def cmd_calibrer(a):
     prot = faire_protection(a)
     print(f"modele={faire_modele(a).nom()}  protections={prot.nom or 'aucune'}\n")
 
+    n_att = len(ATTAQUES_CALIBRATION)
+    jeu = taches()
+    n_tach = len(jeu)
+    n_campanha = n_att + n_tach
+    journal = getattr(a, "_journal", None)
+
+    print(f"=== FASE 1/2 : ATAQUES DE CALIBRACAO ({n_att}) ===\n")
     reussies, detail = 0, []
-    for nom, charge in ATTAQUES_CALIBRATION:
+    for i, (nom, charge) in enumerate(ATTAQUES_CALIBRATION, 1):
+        if journal:
+            journal.preparar_progresso("ATAQUE", i, n_att, i, n_campanha)
+        print(f"[progresso] ATAQUE {i}/{n_att} | campanha {i}/{n_campanha}")
         verdict, _ = _une_attaque(a, charge, cas="calibration:" + nom)
         reussies += verdict["reussie"]
         detail.append((nom, verdict["reussie"], verdict["objectifs_atteints"]))
-    taux = 100 * reussies / len(ATTAQUES_CALIBRATION)
+    taux = 100 * reussies / n_att
 
+    print("\n--- Resumo dos ataques ---")
     for nom, ok, obj in detail:
         print(f"  {'REUSSIE' if ok else 'echec  '}  {nom:26s} {','.join(obj)}")
-    print(f"\nAttaques reussies : {reussies}/{len(ATTAQUES_CALIBRATION)}  ({taux:.0f} %)")
+    print(f"\nAttaques reussies : {reussies}/{n_att}  ({taux:.0f} %)")
 
-    ok_t, tot = cmd_taches(a, silencieux=True)
-    print(f"Taches legitimes  : {ok_t}/{tot}")
+    print(f"\n=== FASE 2/2 : TAREFAS LEGITIMAS ({n_tach}) ===\n")
+    ok_t, tot = cmd_taches(a, silencieux=True, progresso_base=n_att, progresso_campanha=n_campanha)
+    print(f"\nTaches legitimes  : {ok_t}/{tot}")
+    print(f"[progresso] campanha completa {n_campanha}/{n_campanha}")
 
     print("\nDiagnostic :")
     if a.modele == "simulateur":
@@ -186,23 +199,31 @@ def cmd_diagnostic(a):
         print("   -> point d'injection non lu, ou contexte tronque (num_ctx).")
 
 
-def cmd_taches(a, silencieux=False):
+def cmd_taches(a, silencieux=False, progresso_base=0, progresso_campanha=None):
     modele, prot = faire_modele(a), faire_protection(a)
     jeu = taches()
+    n_tach = len(jeu)
+    if progresso_campanha is None:
+        progresso_campanha = progresso_base + n_tach
+    journal = getattr(a, "_journal", None)
     ok = 0
-    for t in jeu:
+    for i, t in enumerate(jeu, 1):
+        if journal:
+            journal.preparar_progresso(
+                "TAREFA LEGITIMA", i, n_tach, progresso_base + i, progresso_campanha)
+        print(f"[progresso] TAREFA LEGITIMA {i}/{n_tach} | campanha {progresso_base + i}/{progresso_campanha}")
         etat = neuf(a)
         ex = faire_agent(a, etat, modele, prot, t.id).executer(t.enonce)
         r = t.verifier(etat, ex)
-        if getattr(a, "_journal", None):
-            a._journal.noter("tache_verdict", execution=a._journal.derniere_execution,
-                             cas=t.id, reussie=bool(r))
+        if journal:
+            journal.noter("tache_verdict", execution=journal.derniere_execution,
+                          cas=t.id, reussie=bool(r))
         ok += bool(r)
         if not silencieux and not r:
             print(f"  echec {t.id} : {t.enonce[:60]}")
     if not silencieux:
-        print(f"\nTaches reussies : {ok}/{len(jeu)}")
-    return ok, len(jeu)
+        print(f"\nTaches reussies : {ok}/{n_tach}")
+    return ok, n_tach
 
 
 def main():

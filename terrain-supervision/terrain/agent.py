@@ -57,10 +57,11 @@ class Agent:
                 self.journal.etape = etape + 1
                 self.journal.noter("etape_debut", tache=tache, historique=historique,
                                    echanges=historique.echanges)
-                print(f"[journal] etape {etape + 1}/{self.max_etapes}")
+                self.journal.annoncer_etape(etape + 1)
             action = self.modele.prochaine_action(tache, historique)
             if self.journal:
                 self.journal.noter("decision", action=action)
+                self.journal.annoncer_decision(action)
 
             if "fin" in action:
                 if self.journal:
@@ -78,11 +79,14 @@ class Agent:
             if self.journal:
                 self.journal.noter("outil_decision", outil=nom, args=args,
                                    autorise=appel.autorise, motif=appel.motif_refus)
+                self.journal.annoncer_outil(nom, args, appel.autorise, appel.motif_refus)
             if motif:
                 appel.resultat = f"REFUSE : {motif}"
                 trace.append(appel)
                 self.etat.trace.append(appel)
                 historique.enregistrer(nom, args, appel.resultat, autorise=False, motif=motif)
+                if self.journal:
+                    self.journal.annoncer_resultat(nom, appel.resultat)
                 continue
 
             fragment: Fragment = self.outils.appeler(nom, args)
@@ -96,6 +100,7 @@ class Agent:
                 self.journal.noter("outil_resultat", outil=nom, args=args,
                                    texte_complet=fragment.texte, origine=fragment.origine,
                                    source=fragment.source, observation=historique[-1])
+                self.journal.annoncer_resultat(nom, fragment.texte)
 
         if self.journal:
             self.journal.terminer("limite_etapes", len(trace), "(limite d'etapes atteinte)")

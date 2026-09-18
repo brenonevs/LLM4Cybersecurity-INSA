@@ -75,6 +75,7 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
     assert "aucun resultat" in requests[1][4]["content"]
     assert "Next expected action" not in requests[1][5]["content"]
+    assert not any("explicit operational directive" in m["content"] for m in requests[1])
 
 
 def test_aucun_blocage_de_repetition():
