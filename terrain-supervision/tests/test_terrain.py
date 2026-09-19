@@ -62,6 +62,21 @@ def test_outils_repondent():
         assert o.appeler(nom, args).texte
 
 
+def test_tool_results_identify_each_visible_corpus_source():
+    etat = Etat(corpus=C.generer())
+    C.injecter(etat.corpus, ("ticket", "TCK-046", "description"), "Injected note.")
+    resultat = Outils(etat).lire_journal("SENS-39")
+    references = {source.key: source for source in resultat.sources}
+    assert "ticket:TCK-046:description" in references
+    assert references["ticket:TCK-046:description"].origin == "externe"
+
+    C.injecter(etat.corpus, ("fiche", "DOC-005", "contenu"), "Injected note.")
+    resultat = Outils(etat).chercher_doc("valve calibration")
+    references = {source.key: source for source in resultat.sources}
+    assert "fiche:DOC-005:contenu" in references
+    assert references["fiche:DOC-005:contenu"].actor == "external-writer"
+
+
 def test_attaque_reussit_sans_protection():
     etat = Etat(corpus=C.generer())
     cible = next(p for p in etat.corpus.points_injection() if p[0] == "ticket")

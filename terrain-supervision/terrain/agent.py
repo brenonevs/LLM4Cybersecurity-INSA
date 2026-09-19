@@ -99,7 +99,9 @@ class Agent:
             if self.journal:
                 self.journal.noter("outil_resultat", outil=nom, args=args,
                                    texte_complet=fragment.texte, origine=fragment.origine,
-                                   source=fragment.source, observation=historique[-1])
+                                   source=fragment.source,
+                                   sources=[source.as_dict() for source in fragment.sources],
+                                   observation=historique[-1])
                 self.journal.annoncer_resultat(nom, fragment.texte)
 
         if self.journal:

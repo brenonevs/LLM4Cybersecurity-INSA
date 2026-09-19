@@ -12,11 +12,38 @@ from .corpus import Corpus, DOMAINES_INTERNES
 ORIGINES = ["systeme", "utilisateur", "interne", "externe"]
 
 
+@dataclass(frozen=True)
+class SourceReference:
+    """One corpus field that contributed data to a tool result.
+
+    `key` is stable across executions with the same corpus. Axis B will use it
+    as the identity whose confidence is recorded over time. `actor` describes
+    the declared producer of that field; it is metadata, not a trust decision.
+    """
+    key: str
+    kind: str
+    record_id: str
+    field: str
+    origin: str
+    actor: str
+
+    def as_dict(self) -> Dict[str, str]:
+        return {
+            "key": self.key,
+            "kind": self.kind,
+            "record_id": self.record_id,
+            "field": self.field,
+            "origin": self.origin,
+            "actor": self.actor,
+        }
+
+
 @dataclass
 class Fragment:
     texte: str
     origine: str = "externe"
     source: str = "?"
+    sources: List[SourceReference] = field(default_factory=list)
 
 
 @dataclass
@@ -59,36 +86,56 @@ class Outils:
 
     def lire_journal(self, equipement: str) -> Fragment:
         c = self.etat.corpus
-        lignes = [l for l in c.journaux if l.equipement == equipement][-7:]
+        lignes = [(i, l) for i, l in enumerate(c.journaux)
+                  if l.equipement == equipement][-7:]
         tickets = [t for t in c.tickets if t.equipement == equipement]
         blocs = [f"{l.horodatage} {l.mesure}"
                  + (f"  # {l.commentaire}" if l.commentaire else "")
-                 for l in lignes]
+                 for _, l in lignes]
+        sources = []
+        for i, ligne in lignes:
+            sources.append(SourceReference(
+                f"journal:{i}:mesure", "journal", str(i), "mesure",
+                "interne", ligne.equipement))
+            if ligne.commentaire:
+                sources.append(SourceReference(
+                    f"journal:{i}:commentaire", "journal", str(i), "commentaire",
+                    "externe" if ligne.injectable else "interne", ligne.equipement))
         for t in tickets:
             blocs.append(f"[{t.id}] ({t.auteur}, {t.statut}) {t.description}")
+            sources.append(SourceReference(
+                f"ticket:{t.id}:description", "ticket", t.id, "description",
+                "externe" if t.externe else "interne", t.auteur))
         origine = "interne"
-        if any(t.externe for t in tickets) or any(l.commentaire for l in lignes):
+        if any(t.externe for t in tickets) or any(l.commentaire for _, l in lignes):
             origine = "externe"
         return Fragment("\n".join(blocs) or "(aucune donnee)", origine,
-                        f"journal:{equipement}")
+                        f"journal:{equipement}", sources)
 
     def chercher_doc(self, requete: str) -> Fragment:
         c = self.etat.corpus
         mots = [m for m in requete.lower().split() if len(m) > 3]
-        blocs, origine = [], "interne"
+        blocs, sources, origine = [], [], "interne"
         for f in c.fiches:
             cible = (f.titre + " " + f.contenu).lower()
             if not mots or any(m in cible for m in mots):
-                blocs.append(f"[{f.id}] {f.titre}\n{f.contenu}")
+                blocs.append((f"[{f.id}] {f.titre}\n{f.contenu}", SourceReference(
+                    f"fiche:{f.id}:contenu", "fiche", f.id, "contenu",
+                    "externe" if f.injectable else "interne",
+                    "external-writer" if f.injectable else "internal-documentation")))
                 if f.injectable:
                     origine = "externe"
         for m in c.mails:
             if not mots or any(mo in (m.sujet + m.corps).lower() for mo in mots):
-                blocs.append(f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}")
+                blocs.append((f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}", SourceReference(
+                    f"mail:{m.id}:corps", "mail", m.id, "corps",
+                    "externe" if m.injectable else "interne", m.expediteur)))
                 if m.injectable:
                     origine = "externe"
-        return Fragment("\n\n".join(blocs[:5]) or "(aucun resultat)", origine,
-                        f"doc:{requete[:30]}")
+        visibles = blocs[:5]
+        return Fragment("\n\n".join(texte for texte, _ in visibles) or "(aucun resultat)",
+                        origine, f"doc:{requete[:30]}",
+                        [reference for _, reference in visibles])
 
     # --- action -------------------------------------------------------
 
