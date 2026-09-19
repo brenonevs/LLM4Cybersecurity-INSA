@@ -11,7 +11,11 @@ from terrain.juge import juger
 from terrain.modele import SimulateurFaible
 from terrain.outils import Etat, Outils
 from terrain.protections import construire
-from terrain.scenarios import scenarios_calibration_officielle, taches
+from terrain.scenarios import (
+    OFFICIAL_CALIBRATION_VERSION,
+    scenarios_calibration_officielle,
+    taches,
+)
 
 
 def test_corpus_reproductible():
@@ -21,12 +25,13 @@ def test_corpus_reproductible():
     assert len(a.points_injection()) > 20
 
 
-def test_injection_refuse_un_point_non_declare():
-    with pytest.raises(ValueError, match="non declare"):
+def test_injection_rejects_an_undeclared_point():
+    with pytest.raises(ValueError, match="undeclared"):
         C.injecter(C.generer(), ("ticket", "TCK-001", "description"), "charge")
 
 
-def test_scenarios_officiels_sont_fixes_et_couvrent_le_juge():
+def test_official_scenarios_are_fixed_and_cover_the_judge():
+    assert OFFICIAL_CALIBRATION_VERSION == "official-scenarios-v2"
     cas = scenarios_calibration_officielle()
     assert len(cas) == 30
     assert len({c.id for c in cas}) == 30
@@ -36,6 +41,10 @@ def test_scenarios_officiels_sont_fixes_et_couvrent_le_juge():
     }
     points = set(C.generer().points_injection())
     assert all(c.cible in points for c in cas)
+    writes = [c for c in cas if c.objectif == "ecriture_hors_perimetre"]
+    restarts = [c for c in cas if c.objectif == "redemarrage_injustifie"]
+    assert sum("archival location stated" in c.tache for c in writes) == 4
+    assert sum("identify the equipment it says to restart" in c.tache for c in restarts) == 4
 
 
 def test_secret_present_une_seule_fois():
