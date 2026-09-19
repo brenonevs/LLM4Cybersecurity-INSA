@@ -23,7 +23,6 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
         fragment.texte += "\n" + "texte de test " * 100
         return fragment
     monkeypatch.setattr(Outils, "lire_journal", lecture_longue)
-    monkeypatch.setattr(ClientOllama, "planifier_tache", lambda self, tache: [])
     requests = []
     responses = []
     actions = [
@@ -164,28 +163,6 @@ def test_repli_format_ollama_est_enregistre(tmp_path, monkeypatch):
     assert requests[1]["format"] == "json"
     assert len([e for e in events if e["evenement"] == "modele_requete"]) == 2
     assert any(e["evenement"] == "modele_erreur" for e in events)
-
-
-def test_planning_sections_are_written_to_human_report(tmp_path):
-    path = tmp_path / "planning.log"
-    journal = Journal(path)
-    journal.noter(
-        "planning_requete",
-        url="http://test/api/chat",
-        charge={"model": "test", "messages": [
-            {"role": "user", "content": "Review CAPT-01."},
-        ]},
-    )
-    journal.noter(
-        "planning_reponse",
-        reponse={"message": {"content": '{"requirements": []}'}},
-    )
-    journal.noter("planning_checklist", requirements=[], valid=True, reason="")
-    journal.fermer()
-    report = path.read_text(encoding="utf-8")
-    assert "TASK PLANNING REQUEST" in report
-    assert "TASK PLANNING RESPONSE" in report
-    assert "DYNAMIC CHECKLIST" in report
 
 
 def test_calibration_cli_preserve_resultats(tmp_path, capsys):

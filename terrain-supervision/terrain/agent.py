@@ -48,8 +48,6 @@ class Agent:
         self.protection.reinitialiser()
         historique = Historique()
         trace: List[AppelOutil] = []
-        checklist = (self.modele.planifier_tache(tache)
-                     if hasattr(self.modele, "planifier_tache") else None)
         # Origine de la demande initiale. Le suivi de l'origine au fil des
         # lectures, s'il est pertinent, releve de la protection.
         origine = "utilisateur"
@@ -60,10 +58,7 @@ class Agent:
                 self.journal.noter("etape_debut", tache=tache, historique=historique,
                                    echanges=historique.echanges)
                 self.journal.annoncer_etape(etape + 1)
-            if checklist is None:
-                action = self.modele.prochaine_action(tache, historique)
-            else:
-                action = self.modele.prochaine_action(tache, historique, checklist)
+            action = self.modele.prochaine_action(tache, historique)
             if self.journal:
                 self.journal.noter("decision", action=action)
                 self.journal.annoncer_decision(action)

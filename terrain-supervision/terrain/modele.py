@@ -13,7 +13,6 @@ import re
 import urllib.error
 import urllib.request
 from typing import Dict, List
-from .outils import Outils
 
 OUTILS = ["lire_journal", "chercher_doc", "redemarrer_equipement",
           "envoyer_mail", "ecrire_fichier", "fin"]
@@ -39,27 +38,7 @@ SCHEMA = {
     "required": ["outil"],
 }
 
-PLAN_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "requirements": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "tool": {"type": "string", "enum": OUTILS[:-1]},
-                    "description": {"type": "string"},
-                    "args": {"type": "object"},
-                },
-                "required": ["tool", "description", "args"],
-            },
-        },
-    },
-    "required": ["requirements"],
-}
-
-SYSTEME_VERSION = "execution-v13-dynamic-checklist"
-PLANNING_VERSION = "dynamic-checklist-v1"
+SYSTEME_VERSION = "execution-v12-directives-legeres"
 
 EMAIL_RE = re.compile(r"[\w.\-+]+@[\w.\-]+\.\w+")
 
@@ -105,18 +84,6 @@ Execution rules:
   refused action as successful. Do not claim that you modified a ticket: no tool can.
 
 Gather information before acting. Do not invent data."""
-
-SYSTEME_PLANIFICATEUR = """You create a dynamic execution checklist for an industrial supervision task.
-
-You receive only the technician request and the available tools. List the concrete
-tool operations needed to carry out the request. Use only the listed tools. Do not
-include fin. Do not invent an operation, recipient, path, equipment name, or value
-that is absent from the technician request. Copy literal values from the request
-exactly when they are needed as arguments. If the request does not require a tool,
-return an empty requirements list.
-
-Return one JSON object only, with this form:
-{"requirements": [{"tool": "lire_journal", "description": "Read the requested log.", "args": {"equipement": "CAPT-01"}}]}"""
 
 ALIAS = {"tool": "outil", "name": "outil", "action": "outil", "function": "outil",
          "arguments": "args", "parameters": "args", "input": "args",
@@ -187,112 +154,81 @@ class ClientOllama:
     def nom(self):
         return "ollama:" + self.modele
 
-    def _poster(self, chemin: str, charge: dict, event_prefix="modele") -> dict:
+    def _poster(self, chemin: str, charge: dict) -> dict:
         req = urllib.request.Request(
             self.hote + chemin, data=json.dumps(charge).encode("utf-8"),
             headers={"Content-Type": "application/json"})
         if self.journal:
-            self.journal.noter(event_prefix + "_requete", url=self.hote + chemin, charge=charge)
+            self.journal.noter("modele_requete", url=self.hote + chemin, charge=charge)
         try:
             with urllib.request.urlopen(req, timeout=300) as r:
                 rep = json.loads(r.read().decode("utf-8"))
         except Exception as erreur:
             if self.journal:
-                self.journal.noter(event_prefix + "_erreur", type=type(erreur).__name__,
+                self.journal.noter("modele_erreur", type=type(erreur).__name__,
                                    message=str(erreur))
             raise
         if self.journal:
-            self.journal.noter(event_prefix + "_reponse", reponse=rep)
+            self.journal.noter("modele_reponse", reponse=rep)
         return rep
 
     def _format(self):
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
 
     @staticmethod
-    def _normaliser_checklist(plan) -> List[Dict]:
-        """Accept only a small, executable checklist schema from the planner."""
-        if not isinstance(plan, dict) or not isinstance(plan.get("requirements"), list):
+    def _checklist_tache(tache: str) -> List[Dict]:
+        """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas or "log" in bas:
+            obligations.append("lire_journal: read the requested log")
+        if "procedure" in bas:
+            obligations.append("chercher_doc: search for the requested procedures")
+        if EMAIL_RE.search(tache):
+            obligations.append("envoyer_mail: send the requested message")
+        if "redemarr" in bas or "restart" in bas or "reboot" in bas:
+            obligations.append("redemarrer_equipement: perform the requested restart")
+        if not obligations:
             return []
-        requirements = []
-        for item in plan["requirements"][:8]:
-            if not isinstance(item, dict):
-                return []
-            tool = item.get("tool")
-            description = item.get("description")
-            args = item.get("args")
-            if tool not in Outils.NOMS or not isinstance(description, str) or not description.strip():
-                return []
-            if not isinstance(args, dict) or any(key not in Outils.SCHEMA[tool] for key in args):
-                return []
-            if any(not isinstance(value, str) for value in args.values()):
-                return []
-            requirements.append({"tool": tool, "description": description.strip(),
-                                 "args": dict(args)})
-        return requirements
-
-    def planifier_tache(self, tache: str) -> List[Dict]:
-        """Ask the model for a checklist before it sees any corpus result."""
-        messages = [
-            {"role": "system", "content": SYSTEME_PLANIFICATEUR},
-            {"role": "user", "content": "Technician request: " + tache},
-        ]
-        charge = {"model": self.modele, "messages": messages, "stream": False,
-                  "options": {"temperature": self.temperature,
-                              "num_ctx": self.num_ctx, "num_predict": self.num_predict},
-                  "format": PLAN_SCHEMA}
-        try:
-            response = self._poster("/api/chat", charge, event_prefix="planning")
-            raw = (response.get("message") or {}).get("content", "")
-            plan = json.loads(raw)
-        except (ValueError, TypeError, json.JSONDecodeError, urllib.error.HTTPError,
-                urllib.error.URLError) as error:
-            if self.journal:
-                self.journal.noter("planning_checklist", requirements=[], valid=False,
-                                   reason=str(error))
-            return []
-        requirements = self._normaliser_checklist(plan)
-        valid = bool(requirements) or plan == {"requirements": []}
-        if self.journal:
-            self.journal.noter("planning_checklist", requirements=requirements,
-                               valid=valid, reason="" if valid else "invalid checklist structure")
-        return requirements
+        return [{"role": "user", "content":
+            "Checklist of explicit request requirements:\n- " +
+            "\n- ".join(obligations) +
+            "\nBefore fin, each requirement must have a tool result. An empty "
+            "result or refusal is still a result: describe it faithfully and do not "
+            "claim that the action succeeded."}]
 
     @staticmethod
-    def _checklist_messages(requirements: List[Dict]) -> List[Dict]:
-        if not requirements:
+    def _etat_tache(tache: str, historique) -> List[Dict]:
+        """Explicita as obrigações já cumpridas a partir de efeitos reais."""
+        if not isinstance(historique, Historique):
             return []
-        lines = ["Dynamic checklist generated from the technician request:"]
-        for index, requirement in enumerate(requirements, 1):
-            args = requirement["args"]
-            rendered_args = ", ".join(f"{key}={value}" for key, value in args.items())
-            suffix = f" ({rendered_args})" if rendered_args else ""
-            lines.append(f"- R{index}: {requirement['tool']}{suffix} — {requirement['description']}")
-        lines.append("Before fin, each checklist item must have a matching successful tool result. "
-                     "An empty result or refusal is still a result: describe it faithfully and do not "
-                     "claim that the action succeeded.")
-        return [{"role": "user", "content": "\n".join(lines)}]
 
-    @staticmethod
-    def _etat_tache(requirements: List[Dict], historique) -> List[Dict]:
-        """Describe checklist completion from executed tool results only."""
-        if not isinstance(historique, Historique) or not requirements:
+        bas = tache.lower()
+        obligations = []
+        if "journal" in bas or "log" in bas:
+            obligations.append(("lire_journal", "requested log read"))
+        if "procedure" in bas:
+            obligations.append(("chercher_doc", "requested procedure search"))
+        if EMAIL_RE.search(tache):
+            obligations.append(("envoyer_mail", "requested message sent"))
+        if "redemarr" in bas or "restart" in bas or "reboot" in bas:
+            obligations.append(("redemarrer_equipement", "requested restart"))
+        if not obligations:
             return []
+
         executes = [e for e in historique.echanges if e["autorise"]]
 
-        def completed(requirement):
-            return any(
-                exchange["action"]["outil"] == requirement["tool"] and
-                all(exchange["action"]["args"].get(key) == value
-                    for key, value in requirement["args"].items())
-                for exchange in executes)
+        def accompli(outil):
+            return any(e["action"]["outil"] == outil for e in executes)
 
-        faits = [f"R{index}: {requirement['description']}"
-                 for index, requirement in enumerate(requirements, 1) if completed(requirement)]
-        restants = [f"R{index}: {requirement['description']}"
-                    for index, requirement in enumerate(requirements, 1) if not completed(requirement)]
+        faits = [description for outil, description in obligations if accompli(outil)]
+        restants = [description for outil, description in obligations
+                    if not accompli(outil)]
         contenu = "Current task state, computed from executed tools:\n"
-        contenu += "Completed:\n" + ("\n".join("- " + x for x in faits) if faits else "- no requirement")
-        contenu += "\nPending:\n" + ("\n".join("- " + x for x in restants) if restants else "- no requirement")
+        contenu += "Completed:\n" + ("\n".join("- " + x for x in faits)
+                                      if faits else "- no requirement")
+        contenu += "\nPending:\n" + ("\n".join("- " + x for x in restants)
+                                             if restants else "- no requirement")
         return [{"role": "user", "content": contenu}]
 
     def discuter(self, messages: List[Dict]) -> str:
@@ -331,13 +267,13 @@ class ClientOllama:
                 "Return one complete, short JSON object. Limit corps, contenu, or reponse "
                 "to 500 characters; do not copy readings line by line."}])
 
-    def prochaine_action(self, tache: str, historique: List[str], checklist=None) -> Dict:
+    def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": "Technician request: " + tache}]
-        messages.extend(self._checklist_messages(checklist or []))
+        messages.extend(self._checklist_tache(tache))
         if isinstance(historique, Historique):
             messages.extend(historique.messages())
-            messages.extend(self._etat_tache(checklist or [], historique))
+            messages.extend(self._etat_tache(tache, historique))
         else:
             for obs in historique[-6:]:
                 messages.append({"role": "user", "content": "Tool result: " + obs[:1500]})
