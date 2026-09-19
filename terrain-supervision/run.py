@@ -309,8 +309,8 @@ def main():
     p.add_argument("--trace", action="store_true")
     p.add_argument("--debug", action="store_true",
                    help="affiche la reponse brute du modele a chaque etape")
-    p.add_argument("--journal", metavar="FICHIER.jsonl",
-                   help="enregistre les echanges dans logs/ pour un nom simple, ou au chemin indique")
+    p.add_argument("--journal", metavar="FILE.log",
+                   help="save a human-readable execution report in logs/, or at the given path")
     a = p.parse_args()
     a._journal = Journal(a.journal) if a.journal else None
     if a._journal:
