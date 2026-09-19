@@ -59,6 +59,7 @@ def test_budget_total_repartit_entre_huit_resultats():
 
 def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     client = ClientOllama()
+    monkeypatch.setattr(client, "planifier_tache", lambda tache: [])
     requests = []
     def discuter(messages):
         requests.append(messages)
@@ -68,13 +69,12 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     monkeypatch.setattr(client, "discuter", discuter)
     for _ in range(2):
         Agent(Etat(generer()), client).executer("Cherche la procedure")
-    assert [len(m) for m in requests] == [4, 6, 4, 6]
+    assert [len(m) for m in requests] == [2, 4, 2, 4]
     assert requests[0] == requests[2]
     assert requests[1][0] == {"role": "system", "content": SYSTEME}
-    assert requests[1][3]["role"] == "assistant"
-    assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
-    assert "aucun resultat" in requests[1][4]["content"]
-    assert "Next expected action" not in requests[1][5]["content"]
+    assert requests[1][2]["role"] == "assistant"
+    assert json.loads(requests[1][2]["content"])["args"]["requete"] == "POMPE-01 procedures"
+    assert "aucun resultat" in requests[1][3]["content"]
     assert not any("explicit operational directive" in m["content"] for m in requests[1])
 
 

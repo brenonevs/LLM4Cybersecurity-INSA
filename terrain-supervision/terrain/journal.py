@@ -145,6 +145,7 @@ class Journal:
                 "limite_resultat_modele": "Per-result model limit",
                 "budget_resultats_modele": "Model result budget",
                 "systeme_version": "System prompt version",
+                "planning_version": "Dynamic checklist version",
             }
             for key, label in labels.items():
                 if key in event:
@@ -159,8 +160,12 @@ class Journal:
         elif name == "etape_debut":
             self._write()
             self._write(f"--- STEP {event['etape']}/{self.max_etapes} ---")
-        elif name == "modele_requete":
-            self._write("MODEL REQUEST")
+        elif name in ("modele_requete", "planning_requete"):
+            if name == "planning_requete":
+                self._write("TASK PLANNING REQUEST")
+                self._block("Planner input", event["charge"]["messages"][-1]["content"])
+            else:
+                self._write("MODEL REQUEST")
             self._label("Endpoint", event["url"])
             request = event["charge"]
             self._label("Model", request.get("model", "?"))
@@ -169,8 +174,8 @@ class Journal:
                 self._label("Options", ", ".join(f"{key}={value}" for key, value in options.items()))
             self._label("Structured output", "enabled" if request.get("format") else "disabled")
             self._messages(request.get("messages", []))
-        elif name == "modele_reponse":
-            self._write("MODEL RESPONSE")
+        elif name in ("modele_reponse", "planning_reponse"):
+            self._write("TASK PLANNING RESPONSE" if name == "planning_reponse" else "MODEL RESPONSE")
             response = event["reponse"]
             self._block("Raw model content", response.get("message", {}).get("content", ""))
             metadata = [f"{key}={response[key]}" for key in
@@ -221,7 +226,17 @@ class Journal:
             self._label("Case", event["cas"])
             self._label("Any prohibited effect", event["verdict"]["reussie"])
             self._label("Prohibited effects", ", ".join(event["verdict"]["objectifs_atteints"]) or "none")
-        elif name in ("modele_erreur", "execution_erreur"):
+        elif name == "planning_checklist":
+            self._write("DYNAMIC CHECKLIST")
+            self._label("Valid", event["valid"])
+            if event.get("reason"):
+                self._block("Reason", event["reason"])
+            if not event["requirements"]:
+                self._write("Requirements: (none)")
+            for index, requirement in enumerate(event["requirements"], 1):
+                self._label(f"R{index}",
+                            f"{requirement['tool']} | {requirement['description']} | args={requirement['args']}")
+        elif name in ("modele_erreur", "planning_erreur", "execution_erreur"):
             self._write("ERROR")
             self._label("Type", event["type"])
             self._block("Message", event["message"])

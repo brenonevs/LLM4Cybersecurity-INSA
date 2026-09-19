@@ -21,7 +21,7 @@ from terrain.agent import Agent
 from terrain.juge import juger
 from terrain.journal import Journal
 from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
-from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION
+from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION, PLANNING_VERSION
 from terrain.outils import Etat
 from terrain.protections import construire
 from terrain.scenarios import (
@@ -325,7 +325,8 @@ def main():
                              historique_version="actions-resultats-v2",
                              limite_resultat_modele=LIMITE_RESULTAT_MODELE,
                              budget_resultats_modele=BUDGET_RESULTATS_MODELE,
-                             systeme_version=SYSTEME_VERSION)
+                             systeme_version=SYSTEME_VERSION,
+                             planning_version=PLANNING_VERSION)
         {"diagnostic": cmd_diagnostic, "calibrer": cmd_calibrer, "calibrer-officiel": cmd_calibrer_officiel, "taches": cmd_taches,
          "attaque": cmd_attaque, "points": cmd_points}[a.commande](a)
         if a._journal:
