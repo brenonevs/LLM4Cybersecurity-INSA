@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 
-def lire_evenements(chemin):
+def read_events(chemin):
     texte = Path(chemin).read_text(encoding="utf-8")
     decodeur = json.JSONDecoder()
     evenements = []
@@ -21,23 +21,23 @@ def lire_evenements(chemin):
     return evenements
 
 
-def _raccourcir(texte, limite=100):
+def _shorten(texte, limite=100):
     texte = " ".join(str(texte).split())
     if len(texte) <= limite:
         return texte
     return texte[: limite - 1] + "…"
 
 
-def _args_lisibles(args, limite=120):
+def _readable_args(args, limite=120):
     if not args:
         return ""
     parts = []
     for cle, valeur in args.items():
-        parts.append(f"{cle}={_raccourcir(valeur, 40)}")
-    return _raccourcir(", ".join(parts), limite)
+        parts.append(f"{cle}={_shorten(valeur, 40)}")
+    return _shorten(", ".join(parts), limite)
 
 
-def _tipo_execucao(cas):
+def _execution_type(cas):
     nome = str(cas or "")
     if nome.startswith("calibration:") or nome == "attaque":
         return "ATAQUE"
@@ -69,14 +69,14 @@ class Journal:
         self.campanha_indice = None
         self.campanha_total = None
 
-    def preparar_progresso(self, fase, indice, total, campanha_indice=None, campanha_total=None):
+    def prepare_progress(self, fase, indice, total, campanha_indice=None, campanha_total=None):
         self.progresso_fase = fase
         self.progresso_indice = indice
         self.progresso_total = total
         self.campanha_indice = campanha_indice
         self.campanha_total = campanha_total
 
-    def _linha_progresso(self):
+    def _progress_line(self):
         if self.progresso_indice is None or self.progresso_total is None:
             return None
         fase = self.progresso_fase or self.tipo or "EXECUCAO"
@@ -85,7 +85,7 @@ class Journal:
             linha += f" | campanha {self.campanha_indice}/{self.campanha_total}"
         return linha
 
-    def noter(self, evenement, **donnees):
+    def log(self, evenement, **donnees):
         entree = {
             "version": 2,
             "date_utc": datetime.now(timezone.utc).isoformat(),
@@ -99,65 +99,65 @@ class Journal:
         self.fichier.write("\n\n")
         self.fichier.flush()
 
-    def commencer(self, cas, tache, max_etapes):
+    def start(self, cas, tache, max_etapes):
         self.execution = uuid4().hex
         self.derniere_execution = self.execution
         self.etape = None
         self.max_etapes = max_etapes
         self.cas = cas
-        self.tipo = _tipo_execucao(cas)
-        self.noter("execution_debut", cas=cas, tache=tache, max_etapes=max_etapes)
-        progresso = self._linha_progresso()
+        self.tipo = _execution_type(cas)
+        self.log("execution_debut", cas=cas, tache=tache, max_etapes=max_etapes)
+        progresso = self._progress_line()
         if progresso:
             print(f"[journal] -------- {self.tipo} | debut | {progresso} --------")
         else:
             print(f"[journal] -------- {self.tipo} | debut --------")
         print(f"[journal] cas={cas} | execution={self.execution[:8]}")
-        print(f"[journal]   pedido: {_raccourcir(tache, 140)}")
+        print(f"[journal]   pedido: {_shorten(tache, 140)}")
 
-    def annoncer_etape(self, numero):
+    def announce_step(self, numero):
         total = self.max_etapes if self.max_etapes is not None else "?"
         tipo = self.tipo or "EXECUCAO"
-        progresso = self._linha_progresso()
+        progresso = self._progress_line()
         if progresso:
             print(f"[journal] [{tipo}] etape {numero}/{total} | {progresso}")
         else:
             print(f"[journal] [{tipo}] etape {numero}/{total}")
 
-    def annoncer_decision(self, action):
+    def announce_decision(self, action):
         if "fin" in action:
             print("[journal]   decision: fin")
             return
         outil = str(action.get("outil", "")).strip() or "?"
-        args = _args_lisibles(action.get("args") or {})
+        args = _readable_args(action.get("args") or {})
         detail = f"{outil}({args})" if args else f"{outil}()"
         print(f"[journal]   decision: {detail}")
 
-    def annoncer_outil(self, outil, args, autorise, motif=""):
+    def announce_tool(self, outil, args, autorise, motif=""):
         if autorise:
             print(f"[journal]   outil: {outil} | ok")
         else:
-            print(f"[journal]   outil: {outil} | REFUS | {_raccourcir(motif, 80)}")
+            print(f"[journal]   outil: {outil} | REFUS | {_shorten(motif, 80)}")
 
-    def annoncer_resultat(self, outil, texte):
-        print(f"[journal]   resultat: {_raccourcir(texte, 120)}")
+    def announce_result(self, outil, texte):
+        print(f"[journal]   resultat: {_shorten(texte, 120)}")
 
-    def terminer(self, raison, appels, reponse):
-        self.noter("execution_fin", raison=raison, appels=appels, reponse=reponse)
+    def finish(self, raison, appels, reponse):
+        self.log("execution_fin", raison=raison, appels=appels, reponse=reponse)
         tipo = self.tipo or "EXECUCAO"
-        progresso = self._linha_progresso()
+        progresso = self._progress_line()
         if progresso:
             print(f"[journal] -------- {tipo} | fin | completos {progresso} --------")
         else:
             print(f"[journal] -------- {tipo} | fin --------")
         print(f"[journal] cas={self.cas} | raison={raison} | appels={appels}")
         if reponse:
-            print(f"[journal]   reponse: {_raccourcir(reponse, 140)}")
+            print(f"[journal]   reponse: {_shorten(reponse, 140)}")
         self.execution = None
         self.etape = None
         self.max_etapes = None
         self.cas = None
         self.tipo = None
 
-    def fermer(self):
+    def close(self):
         self.fichier.close()

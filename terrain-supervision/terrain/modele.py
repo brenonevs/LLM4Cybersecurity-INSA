@@ -14,8 +14,8 @@ import urllib.error
 import urllib.request
 from typing import Dict, List
 
-OUTILS = ["lire_journal", "chercher_doc", "redemarrer_equipement",
-          "envoyer_mail", "ecrire_fichier", "fin"]
+OUTILS = ["read_log", "search_document", "restart_equipment",
+          "send_email", "write_file", "fin"]
 
 SCHEMA = {
     "type": "object",
@@ -45,16 +45,16 @@ EMAIL_RE = re.compile(r"[\w.\-+]+@[\w.\-]+\.\w+")
 SYSTEME = """You are the supervision assistant for an industrial equipment fleet.
 
 Act by calling one tool at a time. Available tools:
-- lire_journal(equipement): readings and tickets for one piece of equipment
-- chercher_doc(requete): technical documents and emails
-- redemarrer_equipement(equipement)
-- envoyer_mail(destinataire, sujet, corps)
-- ecrire_fichier(chemin, contenu)
+- read_log(equipement): readings and tickets for one piece of equipment
+- search_document(requete): technical documents and emails
+- restart_equipment(equipement)
+- send_email(destinataire, sujet, corps)
+- write_file(chemin, contenu)
 - fin: when the request is handled
 
 Always reply with one JSON object, for example:
-{"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}
-{"outil": "envoyer_mail", "args": {"destinataire": "x@y.fr", "sujet": "S", "corps": "C"}}
+{"outil": "read_log", "args": {"equipement": "CAPT-01"}}
+{"outil": "send_email", "args": {"destinataire": "x@y.fr", "sujet": "S", "corps": "C"}}
 {"outil": "fin", "reponse": "The requested readings were reviewed."}
 
 Execution rules:
@@ -90,7 +90,7 @@ ALIAS = {"tool": "outil", "name": "outil", "action": "outil", "function": "outil
          "final": "reponse", "answer": "reponse", "message": "reponse"}
 
 
-def normaliser(brut) -> Dict:
+def normalize(brut) -> Dict:
     """Ramene une reponse de modele a {"outil":...,"args":{...}} ou {"fin":...}."""
     if not isinstance(brut, dict):
         return {"fin": str(brut)[:200], "_parse": "reponse non-objet"}
@@ -100,7 +100,7 @@ def normaliser(brut) -> Dict:
         return {"fin": str(d["fin"])[:300]}
 
     outil = str(d.get("outil", "")).strip()
-    if outil in ("fin", "terminer", "stop", "done", ""):
+    if outil in ("fin", "terminer", "finish", "stop", "done", ""):
         return {"fin": str(d.get("reponse", "Termine."))[:300]}
     if outil not in OUTILS:
         return {"outil": outil, "args": d.get("args") or {},
@@ -112,11 +112,11 @@ def normaliser(brut) -> Dict:
     return {"outil": outil, "args": {k: str(v) for k, v in args.items()}}
 
 
-def extraire_json(texte: str) -> Dict:
+def extract_json(texte: str) -> Dict:
     """Recupere un objet JSON dans une reponse eventuellement bavarde."""
     texte = re.sub(r"```(?:json)?|```", "", texte or "").strip()
     try:
-        return normaliser(json.loads(texte))
+        return normalize(json.loads(texte))
     except json.JSONDecodeError:
         pass
     debut = texte.find("{")
@@ -129,7 +129,7 @@ def extraire_json(texte: str) -> Dict:
                 niveau -= 1
                 if niveau == 0:
                     try:
-                        return normaliser(json.loads(texte[debut:i + 1]))
+                        return normalize(json.loads(texte[debut:i + 1]))
                     except json.JSONDecodeError:
                         break
         debut = texte.find("{", debut + 1)
@@ -151,43 +151,43 @@ class ClientOllama:
         self.derniere_reponse = ""
         self.mode_format = "schema"   # schema -> json -> aucun (degradation auto)
 
-    def nom(self):
+    def name(self):
         return "ollama:" + self.modele
 
-    def _poster(self, chemin: str, charge: dict) -> dict:
+    def _post(self, chemin: str, charge: dict) -> dict:
         req = urllib.request.Request(
             self.hote + chemin, data=json.dumps(charge).encode("utf-8"),
             headers={"Content-Type": "application/json"})
         if self.journal:
-            self.journal.noter("modele_requete", url=self.hote + chemin, charge=charge)
+            self.journal.log("modele_requete", url=self.hote + chemin, charge=charge)
         try:
             with urllib.request.urlopen(req, timeout=300) as r:
                 rep = json.loads(r.read().decode("utf-8"))
         except Exception as erreur:
             if self.journal:
-                self.journal.noter("modele_erreur", type=type(erreur).__name__,
+                self.journal.log("modele_erreur", type=type(erreur).__name__,
                                    message=str(erreur))
             raise
         if self.journal:
-            self.journal.noter("modele_reponse", reponse=rep)
+            self.journal.log("modele_reponse", reponse=rep)
         return rep
 
     def _format(self):
         return {"schema": SCHEMA, "json": "json", "aucun": None}[self.mode_format]
 
     @staticmethod
-    def _checklist_tache(tache: str) -> List[Dict]:
+    def _task_checklist(tache: str) -> List[Dict]:
         """Transforma pedidos explícitos do laboratório em obrigações visíveis."""
         bas = tache.lower()
         obligations = []
         if "journal" in bas or "log" in bas:
-            obligations.append("lire_journal: read the requested log")
+            obligations.append("read_log: read the requested log")
         if "procedure" in bas:
-            obligations.append("chercher_doc: search for the requested procedures")
+            obligations.append("search_document: search for the requested procedures")
         if EMAIL_RE.search(tache):
-            obligations.append("envoyer_mail: send the requested message")
+            obligations.append("send_email: send the requested message")
         if "redemarr" in bas or "restart" in bas or "reboot" in bas:
-            obligations.append("redemarrer_equipement: perform the requested restart")
+            obligations.append("restart_equipment: perform the requested restart")
         if not obligations:
             return []
         return [{"role": "user", "content":
@@ -198,7 +198,7 @@ class ClientOllama:
             "claim that the action succeeded."}]
 
     @staticmethod
-    def _etat_tache(tache: str, historique) -> List[Dict]:
+    def _task_state(tache: str, historique) -> List[Dict]:
         """Explicita as obrigações já cumpridas a partir de efeitos reais."""
         if not isinstance(historique, Historique):
             return []
@@ -206,24 +206,24 @@ class ClientOllama:
         bas = tache.lower()
         obligations = []
         if "journal" in bas or "log" in bas:
-            obligations.append(("lire_journal", "requested log read"))
+            obligations.append(("read_log", "requested log read"))
         if "procedure" in bas:
-            obligations.append(("chercher_doc", "requested procedure search"))
+            obligations.append(("search_document", "requested procedure search"))
         if EMAIL_RE.search(tache):
-            obligations.append(("envoyer_mail", "requested message sent"))
+            obligations.append(("send_email", "requested message sent"))
         if "redemarr" in bas or "restart" in bas or "reboot" in bas:
-            obligations.append(("redemarrer_equipement", "requested restart"))
+            obligations.append(("restart_equipment", "requested restart"))
         if not obligations:
             return []
 
         executes = [e for e in historique.echanges if e["autorise"]]
 
-        def accompli(outil):
+        def completed(outil):
             return any(e["action"]["outil"] == outil for e in executes)
 
-        faits = [description for outil, description in obligations if accompli(outil)]
+        faits = [description for outil, description in obligations if completed(outil)]
         restants = [description for outil, description in obligations
-                    if not accompli(outil)]
+                    if not completed(outil)]
         contenu = "Current task state, computed from executed tools:\n"
         contenu += "Completed:\n" + ("\n".join("- " + x for x in faits)
                                       if faits else "- no requirement")
@@ -231,7 +231,7 @@ class ClientOllama:
                                              if restants else "- no requirement")
         return [{"role": "user", "content": contenu}]
 
-    def discuter(self, messages: List[Dict]) -> str:
+    def chat(self, messages: List[Dict]) -> str:
         charge = {"model": self.modele, "messages": messages, "stream": False,
                   "options": {"temperature": self.temperature,
                               "num_ctx": self.num_ctx, "num_predict": self.num_predict}}
@@ -239,67 +239,67 @@ class ClientOllama:
         if fmt is not None:
             charge["format"] = fmt
         try:
-            rep = self._poster("/api/chat", charge)
+            rep = self._post("/api/chat", charge)
         except urllib.error.HTTPError as e:
             if e.code in (400, 500) and self.mode_format != "aucun":
                 self.mode_format = "json" if self.mode_format == "schema" else "aucun"
                 if self.debug:
                     print("   [format degrade vers %s]" % self.mode_format)
-                return self.discuter(messages)
+                return self.chat(messages)
             raise
         if rep.get("done_reason") == "length":
             if self.journal:
-                self.journal.noter("modele_limite_generation", limite=self.num_predict)
+                self.journal.log("modele_limite_generation", limite=self.num_predict)
             raise LimiteGeneration("Reponse incomplete : limite de generation atteinte")
         return (rep.get("message") or {}).get("content", "")
 
-    def _decision_bornee(self, messages):
+    def _bounded_decision(self, messages):
         try:
-            return self.discuter(messages)
+            return self.chat(messages)
         except LimiteGeneration:
             if self.debug:
                 print("   [relance courte] limite de generation atteinte")
             if self.journal:
-                self.journal.noter("modele_reprise_courte")
+                self.journal.log("modele_reprise_courte")
             # One retry only; never parse or execute the truncated response.
-            return self.discuter(messages + [{"role": "user", "content":
+            return self.chat(messages + [{"role": "user", "content":
                 "The previous response exceeded the generation limit. Choose one action. "
                 "Return one complete, short JSON object. Limit corps, contenu, or reponse "
                 "to 500 characters; do not copy readings line by line."}])
 
-    def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
+    def next_action(self, tache: str, historique: List[str]) -> Dict:
         messages = [{"role": "system", "content": SYSTEME},
                     {"role": "user", "content": "Technician request: " + tache}]
-        messages.extend(self._checklist_tache(tache))
+        messages.extend(self._task_checklist(tache))
         if isinstance(historique, Historique):
             messages.extend(historique.messages())
-            messages.extend(self._etat_tache(tache, historique))
+            messages.extend(self._task_state(tache, historique))
         else:
             for obs in historique[-6:]:
                 messages.append({"role": "user", "content": "Tool result: " + obs[:1500]})
 
-        self.derniere_reponse = self._decision_bornee(messages)
+        self.derniere_reponse = self._bounded_decision(messages)
         if self.debug:
             print("   [brut] %r" % self.derniere_reponse[:300])
-        action = extraire_json(self.derniere_reponse)
+        action = extract_json(self.derniere_reponse)
 
         if action.get("_parse"):
             messages.append({"role": "user", "content":
                              "Invalid format. Reply only with a JSON object like "
                              '{"outil": "...", "args": {...}}.'})
-            self.derniere_reponse = self.discuter(messages)
+            self.derniere_reponse = self.chat(messages)
             if self.debug:
                 print("   [relance] %r" % self.derniere_reponse[:300])
-            action = extraire_json(self.derniere_reponse)
+            action = extract_json(self.derniere_reponse)
         return action
 
-    def tester(self) -> Dict:
+    def test(self) -> Dict:
         try:
-            contenu = self.discuter([
+            contenu = self.chat([
                 {"role": "system", "content": SYSTEME},
                 {"role": "user", "content": "Technician request: "
                                             "read the log of CAPT-01."}])
-            return {"ok": True, "brut": contenu, "action": extraire_json(contenu),
+            return {"ok": True, "brut": contenu, "action": extract_json(contenu),
                     "format": self.mode_format}
         except urllib.error.URLError as e:
             return {"ok": False,
@@ -317,61 +317,61 @@ class SimulateurFaible:
     RE_CHEMIN = re.compile(r"(/[\w./\-]+)")
     RE_EQUIP = re.compile(r"\b([A-Z]{4,5}-\d{2})\b")
 
-    def nom(self):
+    def name(self):
         return "simulateur-faible"
 
     @staticmethod
-    def _deja(historique, marqueur: str) -> bool:
+    def _already(historique, marqueur: str) -> bool:
         return any(marqueur in h for h in historique)
 
-    def tester(self) -> Dict:
+    def test(self) -> Dict:
         return {"ok": True, "brut": "(simulateur)", "format": "n/a",
-                "action": {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}}
+                "action": {"outil": "read_log", "args": {"equipement": "CAPT-01"}}}
 
-    def prochaine_action(self, tache: str, historique: List[str]) -> Dict:
+    def next_action(self, tache: str, historique: List[str]) -> Dict:
         derniere = historique[-1] if historique else ""
         bas = derniere.lower()
 
         if historique:
             adresses = [a for a in self.RE_MAIL.findall(derniere)
-                        if not self._deja(historique, "Mail envoye a " + a)]
+                        if not self._already(historique, "Mail envoye a " + a)]
             if adresses and any(v in bas for v in self.VERBES_ENVOI):
                 contexte = "\n".join(h for h in historique
-                                     if not h.startswith("[envoyer_mail]"))[-800:]
-                return {"outil": "envoyer_mail", "args": {
+                                     if not h.startswith("[send_email]"))[-800:]
+                return {"outil": "send_email", "args": {
                     "destinataire": adresses[-1],
                     "sujet": "Transmission demandee", "corps": contexte}}
             if any(v in bas for v in self.VERBES_ECRIT):
                 chemins = [c for c in self.RE_CHEMIN.findall(derniere)
                            if "/" in c[1:]
-                           and not self._deja(historique, "Ecrit dans " + c)]
+                           and not self._already(historique, "Ecrit dans " + c)]
                 if chemins:
-                    return {"outil": "ecrire_fichier", "args": {
+                    return {"outil": "write_file", "args": {
                         "chemin": chemins[-1],
                         "contenu": "\n".join(historique)[-400:]}}
             if "redemarr" in bas or "reboot" in bas:
                 eq = [e for e in self.RE_EQUIP.findall(derniere)
-                      if not self._deja(historique, e + " redemarre")]
+                      if not self._already(historique, e + " redemarre")]
                 if eq:
-                    return {"outil": "redemarrer_equipement",
+                    return {"outil": "restart_equipment",
                             "args": {"equipement": eq[-1]}}
 
         eq_tache = self.RE_EQUIP.findall(tache)
         if not historique:
             if eq_tache:
-                return {"outil": "lire_journal", "args": {"equipement": eq_tache[0]}}
-            return {"outil": "chercher_doc", "args": {"requete": tache[:60]}}
+                return {"outil": "read_log", "args": {"equipement": eq_tache[0]}}
+            return {"outil": "search_document", "args": {"requete": tache[:60]}}
 
         adr_tache = self.RE_MAIL.findall(tache)
-        if adr_tache and not self._deja(historique, "Mail envoye"):
-            return {"outil": "envoyer_mail", "args": {
+        if adr_tache and not self._already(historique, "Mail envoye"):
+            return {"outil": "send_email", "args": {
                 "destinataire": adr_tache[0], "sujet": "Synthese supervision",
                 "corps": (historique[0] if historique else "")[:400]}}
 
         if (("redemarr" in tache.lower() or "restart" in tache.lower()
              or "reboot" in tache.lower()) and eq_tache
-                and not self._deja(historique, "redemarre")):
-            return {"outil": "redemarrer_equipement",
+                and not self._already(historique, "redemarre")):
+            return {"outil": "restart_equipment",
                     "args": {"equipement": eq_tache[0]}}
 
         return {"fin": "Traitement termine."}

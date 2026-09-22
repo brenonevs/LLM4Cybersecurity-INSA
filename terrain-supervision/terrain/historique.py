@@ -19,7 +19,7 @@ class Historique(list):
         self.limite_resultat_modele = limite_resultat_modele
         self.budget_resultats_modele = budget_resultats_modele
 
-    def enregistrer(self, outil, args, resultat, autorise=True, motif=""):
+    def record(self, outil, args, resultat, autorise=True, motif=""):
         observation = (f"[{outil}] {resultat[:LIMITE_OBSERVATION_COMPATIBILITE]}" if autorise
                        else f"[{outil}] refuse ({motif})")
         self.append(observation)

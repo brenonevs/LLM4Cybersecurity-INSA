@@ -29,23 +29,23 @@ class Agent:
         self.max_etapes = max_etapes
         self.journal, self.cas = journal, cas
 
-    def executer(self, tache: str) -> Execution:
+    def execute(self, tache: str) -> Execution:
         if self.journal:
-            self.journal.commencer(self.cas, tache, self.max_etapes)
+            self.journal.start(self.cas, tache, self.max_etapes)
         debut_trace = len(self.etat.trace)
         try:
-            return self._executer(tache)
+            return self._execute(tache)
         except BaseException as erreur:
             if self.journal:
-                self.journal.noter("execution_erreur", type=type(erreur).__name__,
+                self.journal.log("execution_erreur", type=type(erreur).__name__,
                                    message=str(erreur))
-                self.journal.terminer("interruption" if isinstance(erreur, KeyboardInterrupt)
+                self.journal.finish("interruption" if isinstance(erreur, KeyboardInterrupt)
                                       else "erreur",
                                       len(self.etat.trace) - debut_trace, str(erreur))
             raise
 
-    def _executer(self, tache: str) -> Execution:
-        self.protection.reinitialiser()
+    def _execute(self, tache: str) -> Execution:
+        self.protection.reset()
         historique = Historique()
         trace: List[AppelOutil] = []
         # Origine de la demande initiale. Le suivi de l'origine au fil des
@@ -55,53 +55,53 @@ class Agent:
         for etape in range(self.max_etapes):
             if self.journal:
                 self.journal.etape = etape + 1
-                self.journal.noter("etape_debut", tache=tache, historique=historique,
+                self.journal.log("etape_debut", tache=tache, historique=historique,
                                    echanges=historique.echanges)
-                self.journal.annoncer_etape(etape + 1)
-            action = self.modele.prochaine_action(tache, historique)
+                self.journal.announce_step(etape + 1)
+            action = self.modele.next_action(tache, historique)
             if self.journal:
-                self.journal.noter("decision", action=action)
-                self.journal.annoncer_decision(action)
+                self.journal.log("decision", action=action)
+                self.journal.announce_decision(action)
 
             if "fin" in action:
                 if self.journal:
-                    self.journal.terminer("erreur_format" if action.get("_parse")
+                    self.journal.finish("erreur_format" if action.get("_parse")
                                           else "fin_modele", len(trace), str(action["fin"]))
                 return Execution(tache, trace, str(action["fin"]), etape)
 
-            nom = str(action.get("outil", "")).strip()
+            name = str(action.get("outil", "")).strip()
             args = {k: str(v) for k, v in (action.get("args") or {}).items()}
 
-            motif = self.protection.verifier(nom, args, origine)
-            appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
+            motif = self.protection.verify(name, args, origine)
+            appel = AppelOutil(outil=name, args=args, origine_declencheur=origine,
                                autorise=(motif is None), motif_refus=motif or "")
 
             if self.journal:
-                self.journal.noter("outil_decision", outil=nom, args=args,
+                self.journal.log("outil_decision", outil=name, args=args,
                                    autorise=appel.autorise, motif=appel.motif_refus)
-                self.journal.annoncer_outil(nom, args, appel.autorise, appel.motif_refus)
+                self.journal.announce_tool(name, args, appel.autorise, appel.motif_refus)
             if motif:
                 appel.resultat = f"REFUSE : {motif}"
                 trace.append(appel)
                 self.etat.trace.append(appel)
-                historique.enregistrer(nom, args, appel.resultat, autorise=False, motif=motif)
+                historique.record(name, args, appel.resultat, autorise=False, motif=motif)
                 if self.journal:
-                    self.journal.annoncer_resultat(nom, appel.resultat)
+                    self.journal.announce_result(name, appel.resultat)
                 continue
 
-            fragment: Fragment = self.outils.appeler(nom, args)
-            self.protection.observer(fragment)
+            fragment: Fragment = self.outils.call(name, args)
+            self.protection.observe(fragment)
 
             appel.resultat = fragment.texte[:2000]
             trace.append(appel)
             self.etat.trace.append(appel)
-            historique.enregistrer(nom, args, fragment.texte)
+            historique.record(name, args, fragment.texte)
             if self.journal:
-                self.journal.noter("outil_resultat", outil=nom, args=args,
+                self.journal.log("outil_resultat", outil=name, args=args,
                                    texte_complet=fragment.texte, origine=fragment.origine,
                                    source=fragment.source, observation=historique[-1])
-                self.journal.annoncer_resultat(nom, fragment.texte)
+                self.journal.announce_result(name, fragment.texte)
 
         if self.journal:
-            self.journal.terminer("limite_etapes", len(trace), "(limite d'etapes atteinte)")
+            self.journal.finish("limite_etapes", len(trace), "(limite d'etapes atteinte)")
         return Execution(tache, trace, "(limite d'etapes atteinte)", self.max_etapes)

@@ -55,12 +55,12 @@ Vous devriez arriver à un taux d'attaques réussies de 30%...
 
 *Plus précisément : ce que contient l'environnement fourni, et ce qui vous revient :*  
 Dans le code livré, aucune attaque n'est produite par un modèle de langage.  
-Une attaque y est une chaîne de caractères figée, tirée de la liste `ATTAQUES_CALIBRATION` : le script l'écrit dans un point d'injection au moyen de `corpus.injecter()`, puis lance l'agent cible sur une tâche appât.  
+Une attaque y est une chaîne de caractères figée, tirée de la liste `ATTAQUES_CALIBRATION` : le script l'écrit dans un point d'injection au moyen de `corpus.inject()`, puis lance l'agent cible sur une tâche appât.
 Ici  le seul modèle en jeu est celui de l'agent attaqué, qui lit la charge et s'y soumet ou non. Il ne choisit rien, il n'apprend rien, il ne s'adapte pas : il s'agit d'un banc d'essai à charges fixes, destiné à vérifier que la mesure fonctionne.  
-Votre travail consiste à introduire un second agent utilisant un modèle LLM, celui de l'attaquant, et à lui confier la boucle décrite ci-dessous : consulter la mémoire des tentatives antérieures, sélectionner un point d'injection et une famille d'attaque, faire rédiger la charge, l'injecter, exécuter l'agent cible, puis exploiter le verdict rendu par `juger()` — succès, échec, et surtout motif du refus lorsqu'une protection a bloqué l'appel.  
+Votre travail consiste à introduire un second agent utilisant un modèle LLM, celui de l'attaquant, et à lui confier la boucle décrite ci-dessous : consulter la mémoire des tentatives antérieures, sélectionner un point d'injection et une famille d'attaque, faire rédiger la charge, l'injecter, exécuter l'agent cible, puis exploiter le verdict rendu par `judge()` — succès, échec, et surtout motif du refus lorsqu'une protection a bloqué l'appel.
 C'est ce retour d'information qui distingue un attaquant agentique d'un catalogue rejoué. Vous ne trouverez dans `scenarios.py` aucune de ces briques : il n'y a pas de modèle à imiter, il y a une interface à piloter.  
 Deux contraintes encadrent cette liberté. 
-Votre attaquant réutilise sans les modifier les points d'injection déclarés, l'appel à `Agent(...).executer(...)` et le juge : c'est la condition pour que les trois attaquants restent comparables et que la campagne croisée conserve un sens. Votre agent attaquant réside *en dehors* du paquet `terrain/`, dans son propre module : `terrain/` est gelé après la calibration, `protections.py` reçoit une classe par étudiant, et chaque attaquant occupe un dossier distinct. Cette frontière est ce qui permet à trois personnes de travailler en parallèle sans interférer.
+Votre attaquant réutilise sans les modifier les points d'injection déclarés, l'appel à `Agent(...).execute(...)` et le juge : c'est la condition pour que les trois attaquants restent comparables et que la campagne croisée conserve un sens. Votre agent attaquant réside *en dehors* du paquet `terrain/`, dans son propre module : `terrain/` est gelé après la calibration, `protections.py` reçoit une classe par étudiant, et chaque attaquant occupe un dossier distinct. Cette frontière est ce qui permet à trois personnes de travailler en parallèle sans interférer.
 
 
 ### La surface d'attaque
@@ -101,10 +101,10 @@ Deux protections d'exemple sont fournies et **volontairement insuffisantes** :
 
 Elles servent de plancher de comparaison, pas de solution.
 
-L'interface est simple. `observer(fragment)` est appelée à chaque lecture, avec l'origine et la source de la donnée. `verifier(tool, args, origine_courante)` renvoie `None` pour autoriser, ou un motif de refus.
+L'interface est simple. `observe(fragment)` est appelée à chaque lecture, avec l'origine et la source de la donnée. `verify(tool, args, origine_courante)` renvoie `None` pour autoriser, ou un motif de refus.
 
-À vous de décider quel état votre protection maintient entre `observer()` et
-`verifier()`.
+À vous de décider quel état votre protection maintient entre `observe()` et
+`verify()`.
 
 ### 2. Vos agents attaquants — à créer
 
@@ -116,12 +116,12 @@ La boucle attendue :
 ```
 1. choisir quoi essayer, en relisant l'historique des tentatives
 2. rédiger la charge
-3. l'injecter dans un point de la surface déclarée
-4. observer : réussi ? refusé ? par quelle protection ?
+3. l'inject dans un point de la surface déclarée
+4. observe : réussi ? refusé ? par quelle protection ?
 5. écrire le résultat en mémoire (SQLite), puis recommencer
 ```
 
-L'étape 4 est ce qui rend votre attaquant agentique. `juger()` vous renvoie déjà
+L'étape 4 est ce qui rend votre attaquant agentique. `judge()` vous renvoie déjà
 les motifs de refus : c'est votre signal d'apprentissage.
 
 ---
