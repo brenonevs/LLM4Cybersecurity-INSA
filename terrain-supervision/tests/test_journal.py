@@ -183,6 +183,6 @@ def test_calibration_cli_preserve_resultats(tmp_path, capsys):
     assert "\n".join(x for x in output.splitlines() if not x.startswith("[journal]")) == baseline.rstrip("\n")
     events = args._journal.evenements
     starts = [e for e in events if e["evenement"] == "execution_debut"]
-    verdicts = [e for e in events if e["evenement"] in ("attaque_verdict", "tache_verdict")]
-    assert len(starts) == len(verdicts) == 58
+    verdicts = [e for e in events if e["evenement"] in ("calibration_verdict", "tache_verdict")]
+    assert len(starts) == len(verdicts) == 78
     assert {e["execution"] for e in starts} == {e["execution"] for e in verdicts}

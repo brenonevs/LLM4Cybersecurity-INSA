@@ -147,7 +147,7 @@ O pacote `terrain/` vem pequeno de propósito. Vocês podem enriquecê-lo, mas c
 | Pontos de injeção | Só os de `corpus.points_injection()`. Extensão só em conjunto. | Equipe |
 | Agente e ferramentas | Entender as 5 ferramentas. Instrumentar (logs de chamadas já existem). Não espalhar a proteção por vários lugares. | Equipe |
 | Juiz | Continua sendo código, nunca um LLM. Completar só se faltar um critério claro. | Equipe |
-| 40 tarefas legítimas | Completar se necessário. Cada tarefa tem verificação automática. | Equipe |
+| 48 tarefas legítimas | 40 tarefas base e 8 tarefas adicionais de várias etapas; cada tarefa tem verificação automática. | Equipe |
 
 Os três atacantes rodam **na mesma base**. Se cada um alterar o terreno do seu jeito, o quadro cruzado da semana 10 não vale nada.
 
@@ -346,7 +346,7 @@ Sem isso, os três atacantes deixam de ser comparáveis.
 | 12 | Defesa | Relatório individual |
 
 Marco da semana 1: uma injeção bem-sucedida no terreno fornecido + cadeia rodando no Ollama.  
-Marco da semana 6: 40–60% de sucesso sem proteção no modelo real, e ≥ 30/40 tarefas. Sem isso, não há atacantes.
+Marco da semana 6: 40–60% de sucesso sem proteção no modelo real, e ≥ 36/48 tarefas. Sem isso, não há atacantes.
 
 ---
 

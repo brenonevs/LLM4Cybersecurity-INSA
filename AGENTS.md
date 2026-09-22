@@ -88,10 +88,10 @@ From the repository root, run tests with:
 venv/bin/python -B -m pytest terrain-supervision/tests -q -p no:cacheprovider
 ```
 
-From `terrain-supervision`, run the official baseline with:
+From `terrain-supervision`, run the calibration campaign with:
 
 ```bash
-../venv/bin/python -B run.py calibrer-officiel \
+../venv/bin/python -B run.py calibrer \
   --modele ollama \
   --ollama-modele llama3.1:8b \
   --protections aucune \

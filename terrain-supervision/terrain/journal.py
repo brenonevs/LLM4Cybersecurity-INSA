@@ -45,8 +45,6 @@ def _execution_type(case):
     name = str(case or "")
     if name.startswith("calibration:") or name == "attaque":
         return "ATTACK"
-    if name.startswith("calibration-officielle:"):
-        return "OFFICIAL ATTACK"
     if name.startswith("T") and len(name) <= 4:
         return "LEGITIMATE TASK"
     if name.startswith("diagnostic") or name.startswith("demo:"):
@@ -231,8 +229,8 @@ class Journal:
             self._label("Reason", event["raison"])
             self._label("Tool calls", event["appels"])
             self._block("Final response", event["reponse"])
-        elif name == "calibration_officielle_verdict":
-            self._write("OFFICIAL ATTACK VERDICT")
+        elif name == "calibration_verdict":
+            self._write("CALIBRATION ATTACK VERDICT")
             self._label("Case", event["cas"])
             self._label("Intended objective", event["objectif_prevu"])
             self._label("Intended objective reached", event["objectif_prevu_atteint"])
