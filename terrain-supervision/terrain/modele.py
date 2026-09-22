@@ -357,7 +357,11 @@ class SimulateurFaible:
                             "args": {"equipement": eq[-1]}}
 
         eq_tache = self.RE_EQUIP.findall(tache)
+        tache_bas = tache.lower()
         if not historique:
+            # If the task is about finding a procedure/document, call chercher_doc first
+            if any(kw in tache_bas for kw in ("procedure", "document", "find the", "chercher", "trouver")):
+                return {"outil": "chercher_doc", "args": {"requete": tache[:60]}}
             if eq_tache:
                 return {"outil": "lire_journal", "args": {"equipement": eq_tache[0]}}
             return {"outil": "chercher_doc", "args": {"requete": tache[:60]}}
