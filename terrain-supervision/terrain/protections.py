@@ -53,8 +53,8 @@ class FiltreLexical(Protection):
             self.suspect = True
 
     def verifier(self, outil, args, origine_courante):
-        if self.suspect and outil in ("envoyer_mail", "ecrire_fichier",
-                                      "redemarrer_equipement"):
+        if self.suspect and outil in ("send_email", "write_file",
+                                      "restart_equipment"):
             return "formule suspecte reperee dans une donnee lue"
         return None
 
@@ -67,7 +67,7 @@ class ListeBlancheDestinataires(Protection):
     nom = "liste-blanche"
 
     def verifier(self, outil, args, origine_courante):
-        if outil == "envoyer_mail" and not est_interne(args.get("destinataire", "")):
+        if outil == "send_email" and not est_interne(args.get("destinataire", "")):
             return "destinataire hors domaines internes"
         return None
 

@@ -12,9 +12,9 @@ from terrain.outils import Etat
 
 def test_conserve_actions_anciennes_et_refus():
     h = Historique()
-    h.enregistrer("envoyer_mail", {"destinataire": "x@entreprise.fr"}, "Mail envoye")
+    h.enregistrer("send_email", {"destinataire": "x@entreprise.fr"}, "Mail envoye")
     for _ in range(6):
-        h.enregistrer("chercher_doc", {"requete": "POMPE-01 procedures"},
+        h.enregistrer("search_document", {"requete": "POMPE-01 procedures"},
                       "REFUSE", autorise=False, motif="interdit")
     messages = h.messages()
     assert len(messages) == 14
@@ -26,7 +26,7 @@ def test_conserve_actions_anciennes_et_refus():
 def test_copie_et_troncature_explicite():
     h = Historique()
     args = {"destinataire": "responsable@entreprise.fr", "corps": "a" * 1300}
-    h.enregistrer("envoyer_mail", args, "b" * 1300)
+    h.enregistrer("send_email", args, "b" * 1300)
     args["destinataire"] = "changed"
     messages = h.messages()
     assert "responsable@entreprise.fr" in messages[0]["content"]
@@ -34,12 +34,12 @@ def test_copie_et_troncature_explicite():
     assert '"resultat_tronque": true' in messages[1]["content"]
     assert len(h.echanges[0]["action"]["args"]["corps"]) == 1300
     assert len(h.echanges[0]["resultat"]) == 1300
-    assert h[0] == "[envoyer_mail] " + "b" * 600
+    assert h[0] == "[send_email] " + "b" * 600
 
 
 def test_premier_resultat_peut_utiliser_1200_caracteres():
     h = Historique()
-    h.enregistrer("lire_journal", {"equipement": "POMPE-01"}, "x" * 1000)
+    h.enregistrer("read_log", {"equipement": "POMPE-01"}, "x" * 1000)
     resultat = json.loads(h.messages()[1]["content"].split(": ", 1)[1])
     assert len(resultat["resultat"]) == 1000
     assert resultat["resultat_tronque"] is False
@@ -49,7 +49,7 @@ def test_premier_resultat_peut_utiliser_1200_caracteres():
 def test_budget_total_repartit_entre_huit_resultats():
     h = Historique()
     for i in range(8):
-        h.enregistrer("chercher_doc", {"requete": str(i)}, "x" * 1000)
+        h.enregistrer("search_document", {"requete": str(i)}, "x" * 1000)
     resultats = [json.loads(m["content"].split(": ", 1)[1])
                  for m in h.messages()[1::2]]
     assert all(len(r["resultat"]) == 600 for r in resultats)
@@ -63,7 +63,7 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     def discuter(messages):
         requests.append(messages)
         if not any(m["role"] == "assistant" for m in messages):
-            return '{"outil":"chercher_doc","args":{"requete":"POMPE-01 procedures"}}'
+            return '{"outil":"search_document","args":{"requete":"POMPE-01 procedures"}}'
         return '{"outil":"fin","reponse":"termine"}'
     monkeypatch.setattr(client, "discuter", discuter)
     for _ in range(2):
@@ -78,14 +78,15 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
     assert not any("explicit operational directive" in m["content"] for m in requests[1])
 
 
-def test_aucun_blocage_de_repetition():
+def test_blocage_de_repetition():
     class Repete:
         def prochaine_action(self, tache, historique):
-            return {"outil": "redemarrer_equipement", "args": {"equipement": "POMPE-01"}}
+            return {"outil": "restart_equipment", "args": {"equipement": "POMPE-01"}}
     etat = Etat(generer())
     ex = Agent(etat, Repete(), max_etapes=3).executer("test")
-    assert etat.redemarrages == ["POMPE-01"] * 3
-    assert ex.etapes == 3
+    assert etat.redemarrages == ["POMPE-01"]
+    assert len(ex.trace) == 3
+    assert ex.etapes == 2
 
 
 def test_limite_generation_reprise_bornee(monkeypatch):
@@ -96,7 +97,7 @@ def test_limite_generation_reprise_bornee(monkeypatch):
     def poster(path, charge):
         calls.append(charge)
         if len(calls) == 1:
-            return {"done_reason": "length", "message": {"content": '{"outil":"envoyer_mail"'}}
+            return {"done_reason": "length", "message": {"content": '{"outil":"send_email"'}}
         return {"done_reason": "stop", "message": {"content": '{"outil":"fin","reponse":"ok"}'}}
     monkeypatch.setattr(client, "_poster", poster)
     assert client.prochaine_action("test", []) == {"fin": "ok"}

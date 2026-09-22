@@ -32,6 +32,15 @@ def _readable_args(args, limit=120):
                     for key, value in args.items()), limit)
 
 
+def _human_date(value):
+    """Render an ISO timestamp as a date intended for a person to read."""
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return moment.astimezone(timezone.utc).strftime("%d %B %Y, %H:%M UTC")
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _execution_type(case):
     name = str(case or "")
     if name.startswith("calibration:") or name == "attaque":
@@ -82,11 +91,27 @@ class Journal:
             self._write(f"  {line}")
 
     def _messages(self, messages):
-        self._write(f"Messages sent to the model ({len(messages)}):")
+        labels = {
+            "system": "SYSTEM INSTRUCTIONS",
+            "assistant": "PREVIOUS MODEL RESPONSE",
+        }
+        self._write(f"MODEL INPUT — {len(messages)} message(s)")
         for index, message in enumerate(messages, 1):
-            self._write(f"  [{index}] role={message.get('role', '?')}")
-            for line in str(message.get("content", "")).splitlines() or ["(empty)"]:
-                self._write(f"    {line}")
+            content = str(message.get("content", ""))
+            if message.get("role") == "user":
+                if content.startswith("Technician request:"):
+                    label = "ORIGINAL TECHNICIAN TASK"
+                elif content.startswith("Tool result:"):
+                    label = "TOOL RESULT PROVIDED TO MODEL"
+                elif content.startswith("Checklist of explicit request requirements:"):
+                    label = "TASK CHECKLIST"
+                elif content.startswith("Current task state,"):
+                    label = "TASK STATE"
+                else:
+                    label = "USER MESSAGE"
+            else:
+                label = labels.get(message.get("role"), f"MESSAGE ({message.get('role', '?')})")
+            self._block(f"[{index}] {label}", content)
 
     def _sources(self, sources):
         self._write("Sources visible in this result:")
@@ -133,7 +158,7 @@ class Journal:
         if name == "campagne_debut":
             self._heading("CAMPAIGN START")
             labels = {
-                "date_utc": "Date (UTC)",
+                "date_utc": "Date and time (UTC)",
                 "commande": "Command",
                 "modele": "Model provider",
                 "ollama_modele": "Ollama model",
@@ -148,7 +173,7 @@ class Journal:
             }
             for key, label in labels.items():
                 if key in event:
-                    self._label(label, event[key])
+                    self._label(label, _human_date(event[key]) if key == "date_utc" else event[key])
         elif name == "execution_debut":
             self._heading(f"{self.tipo}: {event['cas']}")
             self._label("Execution ID", event["execution"])
@@ -170,9 +195,10 @@ class Journal:
             self._label("Structured output", "enabled" if request.get("format") else "disabled")
             self._messages(request.get("messages", []))
         elif name == "modele_reponse":
-            self._write("MODEL RESPONSE")
+            self._write("MODEL OUTPUT (RAW RESPONSE)")
             response = event["reponse"]
-            self._block("Raw model content", response.get("message", {}).get("content", ""))
+            self._block("Exact response returned by the model",
+                        response.get("message", {}).get("content", ""))
             metadata = [f"{key}={response[key]}" for key in
                         ("done_reason", "prompt_eval_count", "eval_count", "total_duration")
                         if key in response]

@@ -65,13 +65,13 @@ def test_outils_repondent():
 def test_tool_results_identify_each_visible_corpus_source():
     etat = Etat(corpus=C.generer())
     C.injecter(etat.corpus, ("ticket", "TCK-046", "description"), "Injected note.")
-    resultat = Outils(etat).lire_journal("SENS-39")
+    resultat = Outils(etat).read_log("SENS-39")
     references = {source.key: source for source in resultat.sources}
     assert "ticket:TCK-046:description" in references
     assert references["ticket:TCK-046:description"].origin == "externe"
 
     C.injecter(etat.corpus, ("fiche", "DOC-005", "contenu"), "Injected note.")
-    resultat = Outils(etat).chercher_doc("valve calibration")
+    resultat = Outils(etat).search_document("valve calibration")
     references = {source.key: source for source in resultat.sources}
     assert "fiche:DOC-005:contenu" in references
     assert references["fiche:DOC-005:contenu"].actor == "external-writer"
@@ -113,25 +113,25 @@ from terrain.modele import extraire_json
 
 
 def test_parsing_json_propre():
-    a = extraire_json('{"outil": "lire_journal", "args": {"equipement": "CAPT-01"}}')
-    assert a["outil"] == "lire_journal" and a["args"]["equipement"] == "CAPT-01"
+    a = extraire_json('{"outil": "read_log", "args": {"equipement": "CAPT-01"}}')
+    assert a["outil"] == "read_log" and a["args"]["equipement"] == "CAPT-01"
 
 
 def test_parsing_bloc_markdown():
-    a = extraire_json('```json\n{"outil": "chercher_doc", "args": {"requete": "x"}}\n```')
-    assert a["outil"] == "chercher_doc"
+    a = extraire_json('```json\n{"outil": "search_document", "args": {"requete": "x"}}\n```')
+    assert a["outil"] == "search_document"
 
 
 def test_parsing_cles_anglaises():
-    a = extraire_json('{"tool": "envoyer_mail", "arguments": {"destinataire": "a@b.fr"}}')
-    assert a["outil"] == "envoyer_mail" and a["args"]["destinataire"] == "a@b.fr"
+    a = extraire_json('{"tool": "send_email", "arguments": {"destinataire": "a@b.fr"}}')
+    assert a["outil"] == "send_email" and a["args"]["destinataire"] == "a@b.fr"
 
 
 def test_parsing_prose_autour():
     a = extraire_json('Voici l\'action a mener :\n'
-                      '{"outil": "redemarrer_equipement", "args": {"equipement": "POMPE-01"}}\n'
+                      '{"outil": "restart_equipment", "args": {"equipement": "POMPE-01"}}\n'
                       'Cela devrait resoudre le probleme.')
-    assert a["outil"] == "redemarrer_equipement"
+    assert a["outil"] == "restart_equipment"
 
 
 def test_parsing_fin():

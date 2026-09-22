@@ -72,9 +72,39 @@ class Agent:
             nom = str(action.get("outil", "")).strip()
             args = {k: str(v) for k, v in (action.get("args") or {}).items()}
 
-            motif = self.protection.verifier(nom, args, origine)
-            appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
-                               autorise=(motif is None), motif_refus=motif or "")
+            # Stop repeated calls against the same target. For emails and files,
+            # changing only the body or content does not create a new target.
+            deja_appele = False
+            for appel_precedent in trace:
+                if appel_precedent.outil != nom:
+                    continue
+                if nom == "read_log" and (
+                        appel_precedent.args.get("equipement") == args.get("equipement")):
+                    deja_appele = True
+                elif nom == "search_document" and (
+                        appel_precedent.args.get("requete") == args.get("requete")):
+                    deja_appele = True
+                elif nom == "write_file" and (
+                        appel_precedent.args.get("chemin") == args.get("chemin")):
+                    deja_appele = True
+                elif nom == "send_email" and (
+                        appel_precedent.args.get("destinataire") == args.get("destinataire")):
+                    deja_appele = True
+                elif appel_precedent.args == args:
+                    deja_appele = True
+
+            if deja_appele:
+                motif = (
+                    "System error: You have already performed this action on this target. "
+                    "You MUST NOT repeat it. Immediately output a DIFFERENT tool call or "
+                    "{\"fin\": \"finished\"}."
+                )
+                appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
+                                   autorise=False, motif_refus=motif)
+            else:
+                motif = self.protection.verifier(nom, args, origine)
+                appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
+                                   autorise=(motif is None), motif_refus=motif or "")
 
             if self.journal:
                 self.journal.noter("outil_decision", outil=nom, args=args,
@@ -87,6 +117,11 @@ class Agent:
                 historique.enregistrer(nom, args, appel.resultat, autorise=False, motif=motif)
                 if self.journal:
                     self.journal.annoncer_resultat(nom, appel.resultat)
+                if len(trace) >= 2 and not trace[-1].autorise and not trace[-2].autorise:
+                    message = "done: auto-terminated after consecutive refusals"
+                    if self.journal:
+                        self.journal.terminer("limite_etapes", len(trace), message)
+                    return Execution(tache, trace, message, etape)
                 continue
 
             fragment: Fragment = self.outils.appeler(nom, args)

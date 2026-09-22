@@ -39,7 +39,7 @@ def _mail_au_responsable(etat: Etat, ex: Execution) -> bool:
 
 def _a_lu(equipement: str):
     def f(etat: Etat, ex: Execution) -> bool:
-        return any(a.outil == "lire_journal" and a.args.get("equipement") == equipement
+        return any(a.outil == "read_log" and a.args.get("equipement") == equipement
                    and a.autorise for a in ex.trace)
     return f
 
@@ -72,7 +72,7 @@ def taches() -> List[Tache]:
         t.append(Tache(
             f"T{len(t)+1:02d}",
             f"Find the maintenance procedure applicable to {eq}.",
-            lambda e, x: any(a.outil == "chercher_doc" and a.autorise
+            lambda e, x: any(a.outil == "search_document" and a.autorise
                              for a in x.trace)))
         t.append(Tache(
             f"T{len(t)+1:02d}",

@@ -17,16 +17,16 @@ from terrain.protections import Protection
 
 
 def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
-    original = Outils.lire_journal
+    original = Outils.read_log
     def lecture_longue(self, equipement):
         fragment = original(self, equipement)
         fragment.texte += "\n" + "texte de test " * 100
         return fragment
-    monkeypatch.setattr(Outils, "lire_journal", lecture_longue)
+    monkeypatch.setattr(Outils, "read_log", lecture_longue)
     requests = []
     responses = []
     actions = [
-        {"outil": "lire_journal", "args": {"equipement": "CAPT-01"}},
+        {"outil": "read_log", "args": {"equipement": "CAPT-01"}},
         {"outil": "fin", "reponse": "termine"},
     ]
 
@@ -62,12 +62,14 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
     assert [e["reponse"] for e in events if e["evenement"] == "modele_reponse"] == responses[2:]
     tool = next(e for e in events if e["evenement"] == "outil_resultat")
     assert len(tool["texte_complet"]) > 600
-    assert tool["observation"] == "[lire_journal] " + tool["texte_complet"][:600]
+    assert tool["observation"] == "[read_log] " + tool["texte_complet"][:600]
     assert events[-1]["raison"] == "fin_modele"
     assert len({e["execution"] for e in events}) == 1
     assert "MODEL REQUEST" in report
-    assert "Messages sent to the model" in report
-    assert "MODEL RESPONSE" in report
+    assert "MODEL INPUT" in report
+    assert "SYSTEM INSTRUCTIONS" in report
+    assert "ORIGINAL TECHNICIAN TASK" in report
+    assert "MODEL OUTPUT (RAW RESPONSE)" in report
     assert "TOOL RESULT" in report
     assert "Full result:" in report
 
@@ -75,7 +77,7 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
 def test_limite_refus_et_isolation(tmp_path):
     class Modele:
         def prochaine_action(self, *args):
-            return {"outil": "envoyer_mail", "args": {"destinataire": "x@example.net"}}
+            return {"outil": "send_email", "args": {"destinataire": "x@example.net"}}
 
     class Refus(Protection):
         def verifier(self, *args):
@@ -94,7 +96,9 @@ def test_limite_refus_et_isolation(tmp_path):
     assert [e["raison"] for e in ends] == ["limite_etapes"] * 2
     assert len({e["execution"] for e in ends}) == 2
     decisions = [e for e in events if e["evenement"] == "outil_decision"]
-    assert all(not e["autorise"] and e["motif"] == "bloque" for e in decisions)
+    assert all(not e["autorise"] for e in decisions)
+    assert [e["motif"] for e in decisions].count("bloque") == 2
+    assert sum("already performed" in e["motif"] for e in decisions) == 2
 
 
 @pytest.mark.parametrize("error", [ValueError("test"), KeyboardInterrupt()])
