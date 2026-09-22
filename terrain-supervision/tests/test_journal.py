@@ -16,10 +16,6 @@ from terrain.outils import Etat, Outils
 from terrain.protections import Protection
 
 
-def read(path):
-    return read_events(path)
-
-
 def test_log_preserves_requests_and_execution(tmp_path, monkeypatch):
     original = Outils.read_log
     def long_read(self, equipement):
@@ -53,12 +49,13 @@ def test_log_preserves_requests_and_execution(tmp_path, monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
     baseline = Agent(Etat(generate()), ClientOllama()).execute("Consulte CAPT-01")
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
     journal = Journal(path)
     result = Agent(Etat(generate()), ClientOllama(journal=journal),
                    journal=journal, cas="test").execute("Consulte CAPT-01")
     journal.close()
-    events = read(path)
+    events = journal.evenements
+    report = path.read_text(encoding="utf-8")
     assert asdict(result) == asdict(baseline)
     assert requests[:2] == requests[2:]
     assert [e["charge"] for e in events if e["evenement"] == "modele_requete"] == requests[2:]
@@ -68,6 +65,13 @@ def test_log_preserves_requests_and_execution(tmp_path, monkeypatch):
     assert tool["observation"] == "[read_log] " + tool["texte_complet"][:600]
     assert events[-1]["raison"] == "fin_modele"
     assert len({e["execution"] for e in events}) == 1
+    assert "MODEL REQUEST" in report
+    assert "MODEL INPUT" in report
+    assert "SYSTEM INSTRUCTIONS" in report
+    assert "ORIGINAL TECHNICIAN TASK" in report
+    assert "MODEL OUTPUT (RAW RESPONSE)" in report
+    assert "TOOL RESULT" in report
+    assert "Full result:" in report
 
 
 def test_denial_limit_and_isolation(tmp_path):
@@ -79,7 +83,7 @@ def test_denial_limit_and_isolation(tmp_path):
         def verify(self, *args):
             return "bloque"
 
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
     journal = Journal(path)
     for cas in ["T01", "T02"]:
         state = Etat(generate())
@@ -87,7 +91,7 @@ def test_denial_limit_and_isolation(tmp_path):
               journal=journal, cas=cas).execute("test")
         assert not state.mails_envoyes
     journal.close()
-    events = read(path)
+    events = journal.evenements
     ends = [e for e in events if e["evenement"] == "execution_fin"]
     assert [e["raison"] for e in ends] == ["limite_etapes"] * 2
     assert len({e["execution"] for e in ends}) == 2
@@ -103,26 +107,26 @@ def test_errors_are_not_masked(tmp_path, error):
         def next_action(self, *args):
             raise error
 
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
     journal = Journal(path)
     with pytest.raises(type(error)):
         Agent(Etat(generate()), Modele(), journal=journal).execute("test")
     journal.close()
-    assert read(path)[-1]["raison"] == (
+    assert journal.evenements[-1]["raison"] == (
         "interruption" if isinstance(error, KeyboardInterrupt) else "erreur")
 
 
 def test_append_preserves_campaigns(tmp_path):
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
+    campaigns = []
     for _ in range(2):
         journal = Journal(path)
         journal.log("test")
+        campaigns.append(journal.campagne)
         journal.close()
-    events = read(path)
-    assert len(events) == 2
-    assert events[0]["campagne"] != events[1]["campagne"]
-    assert events[0]["version"] == 2
-    assert "\n  \"evenement\": \"test\"\n" in path.read_text(encoding="utf-8")
+    report = path.read_text(encoding="utf-8")
+    assert campaigns[0] != campaigns[1]
+    assert report.count("EVENT: test") == 2
 
 
 def test_read_accepts_legacy_compact_jsonl(tmp_path):
@@ -131,7 +135,7 @@ def test_read_accepts_legacy_compact_jsonl(tmp_path):
         '{"version": 1, "evenement": "a", "n": 1}\n'
         '{"version": 1, "evenement": "b", "n": 2}\n',
         encoding="utf-8")
-    events = read(path)
+    events = read_events(path)
     assert [e["evenement"] for e in events] == ["a", "b"]
 
 
@@ -153,12 +157,12 @@ def test_ollama_format_fallback_is_recorded(tmp_path, monkeypatch):
         return Response()
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
     journal = Journal(path)
     client = ClientOllama(journal=journal)
     assert client.next_action("test", []) == {"fin": "ok"}
     journal.close()
-    events = read(path)
+    events = journal.evenements
     assert isinstance(requests[0]["format"], dict)
     assert requests[1]["format"] == "json"
     assert len([e for e in events if e["evenement"] == "modele_requete"]) == 2
@@ -171,13 +175,13 @@ def test_calibration_cli_preserves_results(tmp_path, capsys):
     args = Namespace(modele="simulateur", protections="aucune")
     command_calibrate(args)
     baseline = capsys.readouterr().out
-    path = tmp_path / "journal.jsonl"
+    path = tmp_path / "journal.log"
     args._journal = Journal(path)
     command_calibrate(args)
     args._journal.close()
     output = capsys.readouterr().out
     assert "\n".join(x for x in output.splitlines() if not x.startswith("[journal]")) == baseline.rstrip("\n")
-    events = read(path)
+    events = args._journal.evenements
     starts = [e for e in events if e["evenement"] == "execution_debut"]
     verdicts = [e for e in events if e["evenement"] in ("attaque_verdict", "tache_verdict")]
     assert len(starts) == len(verdicts) == 50
