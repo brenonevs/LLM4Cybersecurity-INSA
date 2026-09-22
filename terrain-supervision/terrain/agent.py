@@ -77,16 +77,16 @@ class Agent:
             for appel_precedent in trace:
                 if appel_precedent.outil != name:
                     continue
-                if name == "lire_journal" and (
+                if name == "read_log" and (
                         appel_precedent.args.get("equipement") == args.get("equipement")):
                     deja_appele = True
-                elif name == "chercher_doc" and (
+                elif name == "search_document" and (
                         appel_precedent.args.get("requete") == args.get("requete")):
                     deja_appele = True
-                elif name == "ecrire_fichier" and (
+                elif name == "write_file" and (
                         appel_precedent.args.get("chemin") == args.get("chemin")):
                     deja_appele = True
-                elif name == "envoyer_mail" and (
+                elif name == "send_email" and (
                         appel_precedent.args.get("destinataire") == args.get("destinataire")):
                     deja_appele = True
                 elif appel_precedent.args == args:

@@ -328,54 +328,99 @@ class SimulateurFaible:
         return {"ok": True, "brut": "(simulateur)", "format": "n/a",
                 "action": {"outil": "read_log", "args": {"equipement": "CAPT-01"}}}
 
-    def next_action(self, tache: str, historique: List[str]) -> Dict:
-        derniere = historique[-1] if historique else ""
-        bas = derniere.lower()
+    def _plan(self, tache: str):
+        t = tache.lower()
+        eq = self.RE_EQUIP.findall(tache)
+        adr = self.RE_MAIL.findall(tache)
+        chemins = self.RE_CHEMIN.findall(tache)
 
-        if historique:
-            adresses = [a for a in self.RE_MAIL.findall(derniere)
-                        if not self._already(historique, "Mail envoye a " + a)]
-            if adresses and any(v in bas for v in self.VERBES_ENVOI):
-                contexte = "\n".join(h for h in historique
+        plan = []
+
+        besoin_lecture = any(kw in t for kw in ("log", "journal", "read", "check", "status", "anomal", "consulte"))
+        if eq and besoin_lecture:
+            plan.append(("read_log", {"equipement": eq[0]}))
+
+        besoin_doc = any(kw in t for kw in (
+            "procedure", "document", "find the", "look up", "search", "chercher", "trouver",
+            "loto", "calibration", "maintenance procedure", "applicable"))
+        if besoin_doc:
+            plan.append(("search_document", {"requete": tache[:60]}))
+
+        if adr:
+            plan.append(("send_email", {
+                "destinataire": adr[0],
+                "sujet": "Supervision summary",
+                "corps": "Summary from log and documentation review."}))
+
+        chemins_autorises = [c for c in chemins if c.startswith("/var/supervision")]
+        if chemins_autorises:
+            plan.append(("write_file", {
+                "chemin": chemins_autorises[0],
+                "contenu": "Maintenance report generated from log and procedure review."}))
+
+        besoin_restart = any(kw in t for kw in ("restart", "reboot", "redemarr"))
+        if besoin_restart and eq:
+            plan.append(("restart_equipment", {"equipement": eq[0]}))
+
+        if not plan:
+            plan.append(("search_document", {"requete": tache[:60]}))
+
+        return plan
+
+    def next_action(self, tache: str, historique) -> dict:
+        if hasattr(historique, "echanges"):
+            hist_list = [str(e.get("resultat", "")) for e in historique.echanges]
+            hist_outils = [(e.get("action", {}).get("outil", ""),
+                            e.get("action", {}).get("args", {}))
+                           for e in historique.echanges]
+        else:
+            hist_list = list(historique)
+            hist_outils = []
+
+        derniere = hist_list[-1] if hist_list else ""
+        bas = derniere.lower()
+        if hist_list:
+            adresses_data = [a for a in self.RE_MAIL.findall(derniere)
+                             if not self._already(hist_list, "Mail envoye a " + a)]
+            if adresses_data and any(v in bas for v in self.VERBES_ENVOI):
+                contexte = "\n".join(h for h in hist_list
                                      if not h.startswith("[send_email]"))[-800:]
                 return {"outil": "send_email", "args": {
-                    "destinataire": adresses[-1],
+                    "destinataire": adresses_data[-1],
                     "sujet": "Transmission demandee", "corps": contexte}}
             if any(v in bas for v in self.VERBES_ECRIT):
                 chemins = [c for c in self.RE_CHEMIN.findall(derniere)
                            if "/" in c[1:]
-                           and not self._already(historique, "Ecrit dans " + c)]
+                           and not self._already(hist_list, "Ecrit dans " + c)]
                 if chemins:
                     return {"outil": "write_file", "args": {
                         "chemin": chemins[-1],
-                        "contenu": "\n".join(historique)[-400:]}}
+                        "contenu": "\n".join(hist_list)[-400:]}}
             if "redemarr" in bas or "reboot" in bas:
                 eq = [e for e in self.RE_EQUIP.findall(derniere)
-                      if not self._already(historique, e + " redemarre")]
+                      if not self._already(hist_list, e + " redemarre")]
                 if eq:
                     return {"outil": "restart_equipment",
                             "args": {"equipement": eq[-1]}}
 
-        eq_tache = self.RE_EQUIP.findall(tache)
-        tache_bas = tache.lower()
-        if not historique:
-            # If the task is about finding a procedure/document, call chercher_doc first
-            if any(kw in tache_bas for kw in ("procedure", "document", "find the", "chercher", "trouver")):
-                return {"outil": "chercher_doc", "args": {"requete": tache[:60]}}
-            if eq_tache:
-                return {"outil": "read_log", "args": {"equipement": eq_tache[0]}}
-            return {"outil": "search_document", "args": {"requete": tache[:60]}}
-
-        adr_tache = self.RE_MAIL.findall(tache)
-        if adr_tache and not self._already(historique, "Mail envoye"):
-            return {"outil": "send_email", "args": {
-                "destinataire": adr_tache[0], "sujet": "Synthese supervision",
-                "corps": (historique[0] if historique else "")[:400]}}
-
-        if (("redemarr" in tache.lower() or "restart" in tache.lower()
-             or "reboot" in tache.lower()) and eq_tache
-                and not self._already(historique, "redemarre")):
-            return {"outil": "restart_equipment",
-                    "args": {"equipement": eq_tache[0]}}
+        plan = self._plan(tache)
+        for outil, args in plan:
+            deja = False
+            for o, a in hist_outils:
+                if o != outil:
+                    continue
+                if o == "read_log" and a.get("equipement") == args.get("equipement"):
+                    deja = True
+                elif o == "search_document" and a.get("requete") == args.get("requete"):
+                    deja = True
+                elif o == "send_email" and a.get("destinataire") == args.get("destinataire"):
+                    deja = True
+                elif o == "write_file" and a.get("chemin") == args.get("chemin"):
+                    deja = True
+                elif o == "restart_equipment" and a.get("equipement") == args.get("equipement"):
+                    deja = True
+            
+            if not deja:
+                return {"outil": outil, "args": args}
 
         return {"fin": "Traitement termine."}
