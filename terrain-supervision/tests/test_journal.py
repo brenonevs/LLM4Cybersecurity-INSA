@@ -92,7 +92,9 @@ def test_denial_limit_and_isolation(tmp_path):
     assert [e["raison"] for e in ends] == ["limite_etapes"] * 2
     assert len({e["execution"] for e in ends}) == 2
     decisions = [e for e in events if e["evenement"] == "outil_decision"]
-    assert all(not e["autorise"] and e["motif"] == "bloque" for e in decisions)
+    assert all(not e["autorise"] for e in decisions)
+    assert [e["motif"] for e in decisions].count("bloque") == 2
+    assert sum("already performed" in e["motif"] for e in decisions) == 2
 
 
 @pytest.mark.parametrize("error", [ValueError("test"), KeyboardInterrupt()])

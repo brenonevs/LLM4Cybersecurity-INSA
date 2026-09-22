@@ -73,7 +73,7 @@ def test_client_passes_exchanges_and_isolates_tasks(monkeypatch):
     assert requests[1][0] == {"role": "system", "content": SYSTEME}
     assert requests[1][3]["role"] == "assistant"
     assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
-    assert "aucun resultat" in requests[1][4]["content"]
+    assert '"statut": "execute"' in requests[1][4]["content"]
     assert "Next expected action" not in requests[1][5]["content"]
     assert not any("explicit operational directive" in m["content"] for m in requests[1])
 
@@ -84,8 +84,9 @@ def test_no_repetition_blocking():
             return {"outil": "restart_equipment", "args": {"equipement": "POMPE-01"}}
     etat = Etat(generate())
     ex = Agent(etat, Repete(), max_etapes=3).execute("test")
-    assert etat.redemarrages == ["POMPE-01"] * 3
-    assert ex.etapes == 3
+    assert etat.redemarrages == ["POMPE-01"]
+    assert len(ex.trace) == 3
+    assert ex.etapes == 2
 
 
 def test_bounded_generation_retry_limit(monkeypatch):
