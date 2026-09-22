@@ -100,6 +100,7 @@ def test_liste_blanche_bloque_exfiltration_mail():
 
 def test_taches_legitimes_majoritairement_reussies():
     modele, jeu = SimulateurFaible(), taches()
+    assert len(jeu) == 48
     ok = 0
     for t in jeu:
         etat = Etat(corpus=C.generer())

@@ -184,5 +184,5 @@ def test_calibration_cli_preserve_resultats(tmp_path, capsys):
     events = args._journal.evenements
     starts = [e for e in events if e["evenement"] == "execution_debut"]
     verdicts = [e for e in events if e["evenement"] in ("attaque_verdict", "tache_verdict")]
-    assert len(starts) == len(verdicts) == 50
+    assert len(starts) == len(verdicts) == 58
     assert {e["execution"] for e in starts} == {e["execution"] for e in verdicts}

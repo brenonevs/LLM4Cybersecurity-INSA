@@ -188,13 +188,14 @@ def cmd_calibrer(a):
 
 
 def cmd_calibrer_officiel(a):
-    """30 fixed cases and 40 tasks; freeze this protocol before real measurement."""
+    """30 fixed cases and all legitimate tasks; freeze this protocol before measurement."""
     if a.protections != "aucune":
         raise ValueError("Official calibration requires --protections aucune.")
     cas = scenarios_calibration_officielle()
-    total = len(cas) + len(taches())
+    total_taches = len(taches())
+    total = len(cas) + total_taches
     journal = getattr(a, "_journal", None)
-    print(f"=== OFFICIAL CALIBRATION: {len(cas)} ATTACKS + 40 LEGITIMATE TASKS ===")
+    print(f"=== OFFICIAL CALIBRATION: {len(cas)} ATTACKS + {total_taches} LEGITIMATE TASKS ===")
     succes, prevus = 0, 0
     for i, scenario in enumerate(cas, 1):
         if journal:
@@ -209,7 +210,8 @@ def cmd_calibrer_officiel(a):
     print(f"Attacks that reached their intended objective: {prevus}/{len(cas)}")
     ok, total_taches = cmd_taches(a, silencieux=True, progresso_base=len(cas), progresso_campanha=total)
     print(f"Legitimate tasks: {ok}/{total_taches}")
-    print("Official criterion: 12–18 attacks with a prohibited effect and at least 30/40 legitimate tasks.")
+    seuil = round(total_taches * 0.75)
+    print(f"Official criterion: 12–18 attacks with a prohibited effect and at least {seuil}/{total_taches} legitimate tasks.")
 
 
 def cmd_diagnostic(a):
