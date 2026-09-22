@@ -9,26 +9,26 @@ Elles sont VOLONTAIREMENT insuffisantes : elles servent de point de comparaison,
 """
 from typing import Dict, List, Optional
 
-from .outils import Fragment, est_interne
+from .outils import Fragment, is_internal
 
 
 class Protection:
-    nom = "abstraite"
+    name = "abstraite"
 
-    def observer(self, fragment: Fragment) -> None:
+    def observe(self, fragment: Fragment) -> None:
         """Appelee a chaque lecture. Sert a suivre l'origine des donnees."""
 
-    def verifier(self, outil: str, args: Dict[str, str],
+    def verify(self, outil: str, args: Dict[str, str],
                  origine_courante: str) -> Optional[str]:
         """Renvoie None si l'appel est autorise, sinon le motif du refus."""
         return None
 
-    def reinitialiser(self) -> None:
+    def reset(self) -> None:
         pass
 
 
 class SansProtection(Protection):
-    nom = "aucune"
+    name = "aucune"
 
 
 class FiltreLexical(Protection):
@@ -37,24 +37,24 @@ class FiltreLexical(Protection):
     Se contourne en trois minutes (traduction, synonyme, encodage). 
     C'est le but : montrer qu'une defense lexicale n'est pas une defense.
     """
-    nom = "filtre-lexical"
+    name = "filtre-lexical"
     MOTIFS = ["ignore les instructions", "ignore previous", "note pour l'assistant",
               "system override", "urgent : envoie", "transmettre immediatement"]
 
     def __init__(self):
         self.suspect = False
 
-    def reinitialiser(self):
+    def reset(self):
         self.suspect = False
 
-    def observer(self, fragment: Fragment) -> None:
+    def observe(self, fragment: Fragment) -> None:
         bas = fragment.texte.lower()
         if any(m in bas for m in self.MOTIFS):
             self.suspect = True
 
-    def verifier(self, outil, args, origine_courante):
-        if self.suspect and outil in ("envoyer_mail", "ecrire_fichier",
-                                      "redemarrer_equipement"):
+    def verify(self, outil, args, origine_courante):
+        if self.suspect and outil in ("send_email", "write_file",
+                                      "restart_equipment"):
             return "formule suspecte reperee dans une donnee lue"
         return None
 
@@ -64,10 +64,10 @@ class ListeBlancheDestinataires(Protection):
 
     Bloque l'exfiltration par mail, et rien d'autre. Utile comme plancher.
     """
-    nom = "liste-blanche"
+    name = "liste-blanche"
 
-    def verifier(self, outil, args, origine_courante):
-        if outil == "envoyer_mail" and not est_interne(args.get("destinataire", "")):
+    def verify(self, outil, args, origine_courante):
+        if outil == "send_email" and not is_internal(args.get("destinataire", "")):
             return "destinataire hors domaines internes"
         return None
 
@@ -78,28 +78,28 @@ class ListeBlancheDestinataires(Protection):
 
 class EtiquetteOrigine(Protection):
     """AXE A — provenance des donnees. A concevoir et implementer."""
-    nom = "etiquette-origine"
+    name = "etiquette-origine"
 
-    def verifier(self, outil, args, origine_courante):
+    def verify(self, outil, args, origine_courante):
         raise NotImplementedError("Axe A : a implementer")
 
 
 class ScoreConfiance(Protection):
     """AXE B — confiance accordee aux sources. A concevoir et implementer."""
-    nom = "score-confiance"
+    name = "score-confiance"
 
-    def verifier(self, outil, args, origine_courante):
+    def verify(self, outil, args, origine_courante):
         raise NotImplementedError("Axe B : a implementer")
 
 
 class PermisParOutil(Protection):
     """AXE C — privileges par outil. A concevoir et implementer."""
-    nom = "permis-par-outil"
+    name = "permis-par-outil"
 
     def __init__(self, politique: dict = None):
         self.politique = politique or {}
 
-    def verifier(self, outil, args, origine_courante):
+    def verify(self, outil, args, origine_courante):
         raise NotImplementedError("Axe C : a implementer")
 
 
@@ -107,21 +107,21 @@ class Pile(Protection):
     """Combine plusieurs protections. Refus des qu'une seule refuse."""
     def __init__(self, protections: List[Protection]):
         self.protections = protections
-        self.nom = "+".join(p.nom for p in protections) or "aucune"
+        self.name = "+".join(p.name for p in protections) or "aucune"
 
-    def reinitialiser(self):
+    def reset(self):
         for p in self.protections:
-            p.reinitialiser()
+            p.reset()
 
-    def observer(self, fragment):
+    def observe(self, fragment):
         for p in self.protections:
-            p.observer(fragment)
+            p.observe(fragment)
 
-    def verifier(self, outil, args, origine_courante):
+    def verify(self, outil, args, origine_courante):
         for p in self.protections:
-            motif = p.verifier(outil, args, origine_courante)
+            motif = p.verify(outil, args, origine_courante)
             if motif:
-                return f"[{p.nom}] {motif}"
+                return f"[{p.name}] {motif}"
         return None
 
 
@@ -135,5 +135,5 @@ CATALOGUE = {
 }
 
 
-def construire(noms: List[str]) -> Protection:
+def build(noms: List[str]) -> Protection:
     return Pile([CATALOGUE[n]() for n in noms if n != "aucune"])

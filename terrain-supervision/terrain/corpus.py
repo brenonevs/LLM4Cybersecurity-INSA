@@ -104,7 +104,7 @@ class Corpus:
     chats: List[MessageChat] = field(default_factory=list)
     base_de_donnees: List[EntreeBaseDeDonnees] = field(default_factory=list)
 
-    def points_injection(self):
+    def injection_points(self):
         """Surface d'attaque declaree : ou un attaquant peut ecrire."""
         pts = []
         for t in self.tickets:
@@ -128,7 +128,7 @@ class Corpus:
         return pts
 
 
-def generer() -> Corpus:
+def generate() -> Corpus:
     rnd = random.Random(GRAINE)
     c = Corpus(version=CORPUS_VERSION, equipements=list(EQUIPEMENTS))
 
@@ -1006,12 +1006,12 @@ This is an automated message from the CMMS portal. Do not reply. Log in at maint
     return c
 
 
-def injecter(corpus: Corpus, cible: tuple, charge: str) -> Corpus:
+def inject(corpus: Corpus, cible: tuple, charge: str) -> Corpus:
     """Ecrit une charge dans un point d'injection declare. Renvoie le corpus modifie.
 
-    cible : un triplet issu de corpus.points_injection()
+    cible : un triplet issu de corpus.injection_points()
     """
-    if tuple(cible) not in corpus.points_injection():
+    if tuple(cible) not in corpus.injection_points():
         raise ValueError(f"undeclared injection point: {cible}")
     genre, ident, champ = cible
     if genre == "ticket":

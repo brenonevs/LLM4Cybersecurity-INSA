@@ -41,15 +41,15 @@ class Etat:
 class Outils:
     """Les cinq outils. Aucune protection ici : c'est le systeme nu."""
 
-    NOMS = ["lire_journal", "chercher_doc", "redemarrer_equipement",
-            "envoyer_mail", "ecrire_fichier"]
+    NOMS = ["read_log", "search_document", "restart_equipment",
+            "send_email", "write_file"]
 
     SCHEMA = {
-        "lire_journal": {"equipement": "str"},
-        "chercher_doc": {"requete": "str"},
-        "redemarrer_equipement": {"equipement": "str"},
-        "envoyer_mail": {"destinataire": "str", "sujet": "str", "corps": "str"},
-        "ecrire_fichier": {"chemin": "str", "contenu": "str"},
+        "read_log": {"equipement": "str"},
+        "search_document": {"requete": "str"},
+        "restart_equipment": {"equipement": "str"},
+        "send_email": {"destinataire": "str", "sujet": "str", "corps": "str"},
+        "write_file": {"chemin": "str", "contenu": "str"},
     }
 
     def __init__(self, etat: Etat):
@@ -57,7 +57,7 @@ class Outils:
 
     # --- lecture ------------------------------------------------------
 
-    def lire_journal(self, equipement: str) -> Fragment:
+    def read_log(self, equipement: str) -> Fragment:
         c = self.etat.corpus
         lignes = [l for l in c.journaux if l.equipement == equipement][-7:]
         tickets = [t for t in c.tickets if t.equipement == equipement]
@@ -72,7 +72,7 @@ class Outils:
         return Fragment("\n".join(blocs) or "(aucune donnee)", origine,
                         f"journal:{equipement}")
 
-    def chercher_doc(self, requete: str) -> Fragment:
+    def search_document(self, requete: str) -> Fragment:
         c = self.etat.corpus
         mots = [m for m in requete.lower().split() if len(m) > 3]
         blocs, origine = [], "interne"
@@ -92,33 +92,33 @@ class Outils:
 
     # --- action -------------------------------------------------------
 
-    def redemarrer_equipement(self, equipement: str) -> Fragment:
+    def restart_equipment(self, equipement: str) -> Fragment:
         self.etat.redemarrages.append(equipement)
         return Fragment(f"{equipement} redemarre.", "interne", "action")
 
-    def envoyer_mail(self, destinataire: str, sujet: str, corps: str) -> Fragment:
+    def send_email(self, destinataire: str, sujet: str, corps: str) -> Fragment:
         self.etat.mails_envoyes.append(
             {"destinataire": destinataire, "sujet": sujet, "corps": corps})
         return Fragment(f"Mail envoye a {destinataire}.", "interne", "action")
 
-    def ecrire_fichier(self, chemin: str, contenu: str) -> Fragment:
+    def write_file(self, chemin: str, contenu: str) -> Fragment:
         self.etat.fichiers_ecrits.append({"chemin": chemin, "contenu": contenu})
         return Fragment(f"Ecrit dans {chemin}.", "interne", "action")
 
     # --- repartition --------------------------------------------------
 
-    def appeler(self, nom: str, args: Dict[str, Any]) -> Fragment:
-        if nom not in self.NOMS:
-            return Fragment(f"Outil inconnu : {nom}", "systeme", "erreur")
-        attendus = self.SCHEMA[nom]
+    def call(self, name: str, args: Dict[str, Any]) -> Fragment:
+        if name not in self.NOMS:
+            return Fragment(f"Outil inconnu : {name}", "systeme", "erreur")
+        attendus = self.SCHEMA[name]
         propres = {k: str(args.get(k, "")) for k in attendus}
-        return getattr(self, nom)(**propres)
+        return getattr(self, name)(**propres)
 
 
-def domaine_de(adresse: str) -> str:
+def domain_of(adresse: str) -> str:
     return adresse.split("@")[-1].strip().lower() if "@" in adresse else ""
 
 
-def est_interne(adresse: str) -> bool:
-    d = domaine_de(adresse)
+def is_internal(adresse: str) -> bool:
+    d = domain_of(adresse)
     return any(d == x or d.endswith("." + x) for x in DOMAINES_INTERNES)
