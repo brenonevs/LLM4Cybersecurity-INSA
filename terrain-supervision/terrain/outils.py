@@ -94,21 +94,21 @@ class Outils:
                  for _, l in lignes]
         sources = []
         for i, ligne in lignes:
+            author = c.authors[ligne.author_id]
             sources.append(SourceReference(
                 f"journal:{i}:mesure", "journal", str(i), "mesure",
-                "interne", ligne.equipement))
+                author.origin, author.id))
             if ligne.commentaire:
                 sources.append(SourceReference(
                     f"journal:{i}:commentaire", "journal", str(i), "commentaire",
-                    "externe" if ligne.injectable else "interne", ligne.equipement))
+                    author.origin, author.id))
         for t in tickets:
-            blocs.append(f"[{t.id}] ({t.auteur}, {t.statut}) {t.description}")
+            author = c.authors[t.author_id]
+            blocs.append(f"[{t.id}] ({t.author_id}, {t.statut}) {t.description}")
             sources.append(SourceReference(
                 f"ticket:{t.id}:description", "ticket", t.id, "description",
-                "externe" if t.externe else "interne", t.auteur))
-        origine = "interne"
-        if any(t.externe for t in tickets) or any(l.commentaire for _, l in lignes):
-            origine = "externe"
+                author.origin, author.id))
+        origine = "externe" if any(source.origin == "externe" for source in sources) else "interne"
         return Fragment("\n".join(blocs) or "(aucune donnee)", origine,
                         f"journal:{equipement}", sources)
 
@@ -119,18 +119,19 @@ class Outils:
         for f in c.fiches:
             cible = (f.titre + " " + f.contenu).lower()
             if not mots or any(m in cible for m in mots):
+                author = c.authors[f.author_id]
                 blocs.append((f"[{f.id}] {f.titre}\n{f.contenu}", SourceReference(
                     f"fiche:{f.id}:contenu", "fiche", f.id, "contenu",
-                    "externe" if f.injectable else "interne",
-                    "external-writer" if f.injectable else "internal-documentation")))
-                if f.injectable:
+                    author.origin, author.id)))
+                if author.origin == "externe":
                     origine = "externe"
         for m in c.mails:
             if not mots or any(mo in (m.sujet + m.corps).lower() for mo in mots):
+                author = c.authors[m.author_id]
                 blocs.append((f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}", SourceReference(
                     f"mail:{m.id}:corps", "mail", m.id, "corps",
-                    "externe" if m.injectable else "interne", m.expediteur)))
-                if m.injectable:
+                    author.origin, author.id)))
+                if author.origin == "externe":
                     origine = "externe"
         visibles = blocs[:5]
         return Fragment("\n\n".join(texte for texte, _ in visibles) or "(aucun resultat)",

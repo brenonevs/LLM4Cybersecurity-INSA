@@ -25,6 +25,17 @@ def test_corpus_reproductible():
     assert len(a.points_injection()) > 20
 
 
+def test_authors_are_declared_and_can_produce_multiple_record_types():
+    c = C.generer()
+    c.validate_authors()
+    contractor = c.authors["prestataire-externe"]
+    assert contractor.record_kinds == ("ticket", "fiche", "mail")
+    assert any(t.author_id == contractor.id for t in c.tickets)
+    assert any(f.author_id == contractor.id for f in c.fiches)
+    assert any(m.author_id == contractor.id for m in c.mails)
+    assert all(l.author_id == f"sensor:{l.equipement}" for l in c.journaux)
+
+
 def test_injection_rejects_an_undeclared_point():
     with pytest.raises(ValueError, match="undeclared"):
         C.injecter(C.generer(), ("ticket", "TCK-001", "description"), "charge")
@@ -74,7 +85,7 @@ def test_tool_results_identify_each_visible_corpus_source():
     resultat = Outils(etat).search_document("valve calibration")
     references = {source.key: source for source in resultat.sources}
     assert "fiche:DOC-005:contenu" in references
-    assert references["fiche:DOC-005:contenu"].actor == "external-writer"
+    assert references["fiche:DOC-005:contenu"].actor == "prestataire-externe"
 
 
 def test_attaque_reussit_sans_protection():
