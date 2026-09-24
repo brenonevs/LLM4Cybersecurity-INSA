@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from terrain.agent import Agent
 from terrain.corpus import generer
-from terrain.outils import Etat, Fragment, SourceReference
+from terrain.outils import Etat, Fragment, SourceEvidence, SourceReference
 from terrain.protections import ScoreConfiance
 
 
@@ -104,3 +104,19 @@ def test_agent_reading_a_real_record_populates_task_sources():
     seen = protection.sources_tache()
     assert ("prestataire-externe", "ticket") in seen
     assert any(key[1] == "journal" for key in seen)
+
+
+def test_same_content_version_is_recorded_once_and_changed_content_is_new_version():
+    protection = ScoreConfiance()
+    reference = SourceReference("ticket:TCK-046:description", "ticket", "TCK-046",
+                                "description", "externe", "prestataire-externe")
+
+    protection.observer(Fragment("first", evidences=[SourceEvidence(reference, "first")]))
+    protection.observer(Fragment("first", evidences=[SourceEvidence(reference, "first")]))
+    first_versions = protection.versions_vues(reference.key)
+
+    protection.observer(Fragment("changed", evidences=[SourceEvidence(reference, "changed")]))
+
+    assert len(first_versions) == 1
+    assert len(protection.versions_vues(reference.key)) == 2
+    assert protection.confiance("prestataire-externe", "ticket") == 0.5

@@ -80,12 +80,16 @@ def test_tool_results_identify_each_visible_corpus_source():
     references = {source.key: source for source in resultat.sources}
     assert "ticket:TCK-046:description" in references
     assert references["ticket:TCK-046:description"].origin == "externe"
+    evidences = {evidence.reference.key: evidence.content for evidence in resultat.evidences}
+    assert evidences["ticket:TCK-046:description"].endswith("Injected note.")
 
     C.injecter(etat.corpus, ("fiche", "DOC-005", "contenu"), "Injected note.")
     resultat = Outils(etat).search_document("valve calibration")
     references = {source.key: source for source in resultat.sources}
     assert "fiche:DOC-005:contenu" in references
     assert references["fiche:DOC-005:contenu"].actor == "prestataire-externe"
+    evidences = {evidence.reference.key: evidence.content for evidence in resultat.evidences}
+    assert evidences["fiche:DOC-005:contenu"].endswith("Injected note.")
 
 
 def test_attaque_reussit_sans_protection():

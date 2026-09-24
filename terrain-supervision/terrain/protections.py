@@ -8,6 +8,7 @@ Deux protections d'exemple sont fournies.
 Elles sont VOLONTAIREMENT insuffisantes : elles servent de point de comparaison, pas de solution.
 """
 from dataclasses import dataclass
+import hashlib
 from typing import Dict, List, Optional, Set, Tuple
 
 from .outils import Fragment, est_interne
@@ -115,6 +116,7 @@ class ScoreConfiance(Protection):
     def __init__(self):
         self._etats: Dict[Tuple[str, str], EtatConfiance] = {}
         self._sources_tache: Dict[Tuple[str, str], Set[str]] = {}
+        self._versions_vues: Dict[str, Set[str]] = {}
 
     @staticmethod
     def _cle(author_id: str, record_kind: str) -> Tuple[str, str]:
@@ -141,15 +143,26 @@ class ScoreConfiance(Protection):
         set means rereading the same field does not create a second observation
         entry.  This step intentionally does not update alpha or beta yet.
         """
-        for source in fragment.sources:
+        sources = fragment.sources
+        if fragment.evidences:
+            sources = [evidence.reference for evidence in fragment.evidences]
+        for source in sources:
             key = self._cle(source.actor, source.kind)
             self.etat(*key)
             self._sources_tache.setdefault(key, set()).add(source.key)
+
+        for evidence in fragment.evidences:
+            version = hashlib.sha256(evidence.content.encode("utf-8")).hexdigest()
+            self._versions_vues.setdefault(evidence.reference.key, set()).add(version)
 
     def sources_tache(self) -> Dict[Tuple[str, str], Tuple[str, ...]]:
         """Return a serializable snapshot of the sources seen in this task."""
         return {key: tuple(sorted(keys))
                 for key, keys in sorted(self._sources_tache.items())}
+
+    def versions_vues(self, source_key: str) -> Tuple[str, ...]:
+        """Return hashes for every distinct content version read in this episode."""
+        return tuple(sorted(self._versions_vues.get(source_key, set())))
 
     def reinitialiser(self) -> None:
         """Start a task without erasing reputation accumulated in the episode."""

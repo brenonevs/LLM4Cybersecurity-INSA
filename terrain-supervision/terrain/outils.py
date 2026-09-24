@@ -38,12 +38,25 @@ class SourceReference:
         }
 
 
+@dataclass(frozen=True)
+class SourceEvidence:
+    """One exact corpus value paired with the metadata that identifies it.
+
+    Fragment.texte remains the combined text shown to the model.  Axis B uses
+    this structure to distinguish the individual value of one source field
+    from the rest of that combined result.
+    """
+    reference: SourceReference
+    content: str
+
+
 @dataclass
 class Fragment:
     texte: str
     origine: str = "externe"
     source: str = "?"
     sources: List[SourceReference] = field(default_factory=list)
+    evidences: List[SourceEvidence] = field(default_factory=list)
 
 
 @dataclass
@@ -92,51 +105,63 @@ class Outils:
         blocs = [f"{l.horodatage} {l.mesure}"
                  + (f"  # {l.commentaire}" if l.commentaire else "")
                  for _, l in lignes]
-        sources = []
+        sources, evidences = [], []
         for i, ligne in lignes:
             author = c.authors[ligne.author_id]
-            sources.append(SourceReference(
+            reference = SourceReference(
                 f"journal:{i}:mesure", "journal", str(i), "mesure",
-                author.origin, author.id))
+                author.origin, author.id)
+            sources.append(reference)
+            evidences.append(SourceEvidence(reference, ligne.mesure))
             if ligne.commentaire:
-                sources.append(SourceReference(
+                reference = SourceReference(
                     f"journal:{i}:commentaire", "journal", str(i), "commentaire",
-                    author.origin, author.id))
+                    author.origin, author.id)
+                sources.append(reference)
+                evidences.append(SourceEvidence(reference, ligne.commentaire))
         for t in tickets:
             author = c.authors[t.author_id]
             blocs.append(f"[{t.id}] ({t.author_id}, {t.statut}) {t.description}")
-            sources.append(SourceReference(
+            reference = SourceReference(
                 f"ticket:{t.id}:description", "ticket", t.id, "description",
-                author.origin, author.id))
+                author.origin, author.id)
+            sources.append(reference)
+            evidences.append(SourceEvidence(reference, t.description))
         origine = "externe" if any(source.origin == "externe" for source in sources) else "interne"
         return Fragment("\n".join(blocs) or "(aucune donnee)", origine,
-                        f"journal:{equipement}", sources)
+                        f"journal:{equipement}", sources, evidences)
 
     def search_document(self, requete: str) -> Fragment:
         c = self.etat.corpus
         mots = [m for m in requete.lower().split() if len(m) > 3]
-        blocs, sources, origine = [], [], "interne"
+        blocs, sources, evidences, origine = [], [], [], "interne"
         for f in c.fiches:
             cible = (f.titre + " " + f.contenu).lower()
             if not mots or any(m in cible for m in mots):
                 author = c.authors[f.author_id]
-                blocs.append((f"[{f.id}] {f.titre}\n{f.contenu}", SourceReference(
+                reference = SourceReference(
                     f"fiche:{f.id}:contenu", "fiche", f.id, "contenu",
-                    author.origin, author.id)))
+                    author.origin, author.id)
+                blocs.append((f"[{f.id}] {f.titre}\n{f.contenu}", reference))
+                evidences.append(SourceEvidence(reference, f.contenu))
                 if author.origin == "externe":
                     origine = "externe"
         for m in c.mails:
             if not mots or any(mo in (m.sujet + m.corps).lower() for mo in mots):
                 author = c.authors[m.author_id]
-                blocs.append((f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}", SourceReference(
+                reference = SourceReference(
                     f"mail:{m.id}:corps", "mail", m.id, "corps",
-                    author.origin, author.id)))
+                    author.origin, author.id)
+                blocs.append((f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}", reference))
+                evidences.append(SourceEvidence(reference, m.corps))
                 if author.origin == "externe":
                     origine = "externe"
         visibles = blocs[:5]
         return Fragment("\n\n".join(texte for texte, _ in visibles) or "(aucun resultat)",
                         origine, f"doc:{requete[:30]}",
-                        [reference for _, reference in visibles])
+                        [reference for _, reference in visibles],
+                        [evidence for evidence in evidences
+                         if evidence.reference in {reference for _, reference in visibles}])
 
     # --- action -------------------------------------------------------
 
