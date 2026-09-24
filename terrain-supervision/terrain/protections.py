@@ -8,7 +8,7 @@ Deux protections d'exemple sont fournies.
 Elles sont VOLONTAIREMENT insuffisantes : elles servent de point de comparaison, pas de solution.
 """
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .outils import Fragment, est_interne
 
@@ -114,6 +114,7 @@ class ScoreConfiance(Protection):
 
     def __init__(self):
         self._etats: Dict[Tuple[str, str], EtatConfiance] = {}
+        self._sources_tache: Dict[Tuple[str, str], Set[str]] = {}
 
     @staticmethod
     def _cle(author_id: str, record_kind: str) -> Tuple[str, str]:
@@ -133,9 +134,26 @@ class ScoreConfiance(Protection):
         """Return the expected trust of the requested author/category pair."""
         return self.etat(author_id, record_kind).confiance
 
+    def observer(self, fragment: Fragment) -> None:
+        """Record the declared authors and record kinds visible in this task.
+
+        A source key is evidence of one concrete field.  Keeping the keys in a
+        set means rereading the same field does not create a second observation
+        entry.  This step intentionally does not update alpha or beta yet.
+        """
+        for source in fragment.sources:
+            key = self._cle(source.actor, source.kind)
+            self.etat(*key)
+            self._sources_tache.setdefault(key, set()).add(source.key)
+
+    def sources_tache(self) -> Dict[Tuple[str, str], Tuple[str, ...]]:
+        """Return a serializable snapshot of the sources seen in this task."""
+        return {key: tuple(sorted(keys))
+                for key, keys in sorted(self._sources_tache.items())}
+
     def reinitialiser(self) -> None:
-        """A new task does not erase reputation accumulated in the episode."""
-        return None
+        """Start a task without erasing reputation accumulated in the episode."""
+        self._sources_tache.clear()
 
     def verifier(self, outil, args, origine_courante):
         # This first step only stores the mathematical state.  It must not
