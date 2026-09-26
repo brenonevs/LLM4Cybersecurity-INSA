@@ -154,7 +154,9 @@ def test_french_override_and_sensitive_directive_is_also_unfavorable():
 
 @pytest.mark.parametrize("kind, field, source_key", [
     ("ticket", "description", "ticket:TCK-046:description"),
+    ("fiche", "titre", "fiche:DOC-005:titre"),
     ("fiche", "contenu", "fiche:DOC-005:contenu"),
+    ("mail", "sujet", "mail:MAIL-015:sujet"),
     ("mail", "corps", "mail:MAIL-015:corps"),
 ])
 def test_all_natural_language_fields_use_the_same_text_evaluation(kind, field, source_key):
@@ -183,9 +185,21 @@ def test_technical_or_ambiguous_comment_is_neutral_and_does_not_change_trust():
         "neutral", "neutral"]
 
 
+def test_technical_title_that_mentions_restart_is_not_an_agent_directive():
+    protection = ScoreConfiance()
+    reference = SourceReference("fiche:DOC-003:titre", "fiche", "DOC-003", "titre",
+                                "interne", "documentation-interne")
+    protection.observer(Fragment("title", evidences=[SourceEvidence(
+        reference, "Emergency Pump Restart & Interlock Bypass Protocol")]))
+
+    observation = protection.observations()[0]
+    assert observation.evaluation.result == "neutral"
+    assert observation.evaluation.reasons == ("no_strong_signal",)
+
+
 def _measure(content: str) -> SourceEvidence:
     reference = SourceReference("journal:96:mesure", "journal", "96", "mesure",
-                                "interne", "sensor:POMPE-01")
+                                "interne", "sensor:POMPE-01", "measure")
     return SourceEvidence(reference, content)
 
 
@@ -234,6 +248,37 @@ def test_changed_favorable_version_of_the_same_field_does_not_gain_credit_twice(
     state = protection.etat("sensor:POMPE-01", "journal")
     assert (state.alpha, state.beta) == (2.0, 1.0)
     assert protection.observations()[-1].trust_update == "positive_credit_already_used"
+
+
+@pytest.mark.parametrize("field, content_type, content, expected_reason", [
+    ("horodatage", "timestamp", "2026-03-24T06:00:00Z", "expected_timestamp_format"),
+    ("statut", "status", "ouvert", "expected_status_value"),
+    ("expediteur", "email_address", "technician@entreprise.fr",
+     "expected_email_address_format"),
+])
+def test_valid_structured_content_is_assessed_by_its_declared_content_type(
+        field, content_type, content, expected_reason):
+    protection = ScoreConfiance()
+    reference = SourceReference(f"record:001:{field}", "record", "001", field,
+                                "interne", "source-1", content_type)
+    protection.observer(Fragment("structured", evidences=[SourceEvidence(reference, content)]))
+
+    observation = protection.observations()[0]
+    assert observation.evaluation.result == "favorable"
+    assert observation.evaluation.reasons == (expected_reason,)
+    assert observation.trust_update == "alpha+=1"
+
+
+def test_invalid_status_is_a_format_anomaly_not_a_text_attack_claim():
+    protection = ScoreConfiance()
+    reference = SourceReference("ticket:TCK-046:statut", "ticket", "TCK-046", "statut",
+                                "interne", "tech1", "status")
+    protection.observer(Fragment("structured", evidences=[SourceEvidence(reference, "unknown")]))
+
+    observation = protection.observations()[0]
+    assert observation.evaluation.result == "unfavorable"
+    assert observation.evaluation.reasons == ("unexpected_status_value",)
+    assert observation.trust_update == "beta+=0.5"
 
 
 def test_same_unfavorable_comment_version_does_not_penalize_twice():

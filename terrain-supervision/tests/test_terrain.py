@@ -86,6 +86,7 @@ def test_tool_results_identify_each_visible_corpus_source():
     C.injecter(etat.corpus, ("fiche", "DOC-005", "contenu"), "Injected note.")
     resultat = Outils(etat).search_document("valve calibration")
     references = {source.key: source for source in resultat.sources}
+    assert "fiche:DOC-005:titre" in references
     assert "fiche:DOC-005:contenu" in references
     assert references["fiche:DOC-005:contenu"].actor == "prestataire-externe"
     evidences = {evidence.reference.key: evidence.content for evidence in resultat.evidences}

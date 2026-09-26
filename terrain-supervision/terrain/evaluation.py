@@ -8,6 +8,7 @@ that the source is malicious.
 from dataclasses import dataclass
 import re
 import unicodedata
+from datetime import datetime
 from typing import Tuple
 
 from .outils import SourceEvidence
@@ -42,9 +43,10 @@ OVERRIDE_PATTERNS = (
 )
 
 DIRECTIVE_PATTERNS = (
-    r"\b(?:please\s+)?(?:send|email|write|restart|transmit|forward)\b",
-    r"\b(?:envoy(?:er|ez)|transmett(?:re|ez)|ecri(?:re|vez)|écri(?:re|vez)|"
-    r"redemarr(?:er|ez)|redémarr(?:er|ez))\b",
+    r"(?:^|[.!?;:]\s*|\b(?:and|then|please)\s+)(?:please\s+)?"
+    r"(?:send|email|write|restart|transmit|forward)\b",
+    r"(?:^|[.!?;:]\s*|\b(?:et|puis|veuillez)\s+)"
+    r"(?:envoyez|transmettez|ecrivez|écrivez|redemarrez|redémarrez)\b",
 )
 
 SENSITIVE_PATTERNS = (
@@ -111,13 +113,43 @@ def _evaluate_measure(text: str) -> Evaluation:
     return Evaluation(UNFAVORABLE, reasons, weight=0.5)
 
 
+def _evaluate_timestamp(text: str) -> Evaluation:
+    try:
+        datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return Evaluation(UNFAVORABLE, ("unexpected_timestamp_format",), weight=0.5)
+    return Evaluation(FAVORABLE, ("expected_timestamp_format",))
+
+
+def _evaluate_status(text: str) -> Evaluation:
+    if _normaliser(text) in {"ouvert", "clos"}:
+        return Evaluation(FAVORABLE, ("expected_status_value",))
+    return Evaluation(UNFAVORABLE, ("unexpected_status_value",), weight=0.5)
+
+
+EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def _evaluate_email_address(text: str) -> Evaluation:
+    if EMAIL_ADDRESS_PATTERN.fullmatch(text.strip()):
+        return Evaluation(FAVORABLE, ("expected_email_address_format",))
+    return Evaluation(UNFAVORABLE, ("unexpected_email_address_format",), weight=0.5)
+
+
 def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
     """Evaluate content according to its declared content type, not origin.
 
-    ``mesure`` is currently the only structured value in the corpus.  Every
-    other evidence is natural language and therefore uses the same text logic,
-    whether it came from a journal, ticket, technical document, or email.
+    The content type belongs to the field metadata, not to the record origin.
+    Every value marked ``text`` uses the same logic, whether it came from a
+    journal, ticket, technical document, or email.
     """
-    if evidence.reference.field == "mesure":
+    content_type = evidence.reference.content_type
+    if content_type == "measure":
         return _evaluate_measure(evidence.content)
+    if content_type == "timestamp":
+        return _evaluate_timestamp(evidence.content)
+    if content_type == "status":
+        return _evaluate_status(evidence.content)
+    if content_type == "email_address":
+        return _evaluate_email_address(evidence.content)
     return _evaluate_text(evidence.content)

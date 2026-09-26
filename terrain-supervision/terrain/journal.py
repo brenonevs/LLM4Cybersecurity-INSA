@@ -118,10 +118,12 @@ class Journal:
             return
         for source in sources:
             self._write(
-                "  - {key} | kind={kind} | field={field} | origin={origin} | actor={actor}".format(
+                "  - {key} | kind={kind} | field={field} | type={content_type} | "
+                "origin={origin} | actor={actor}".format(
                     key=source.get("key", "?"), kind=source.get("kind", "?"),
                     field=source.get("field", "?"), origin=source.get("origin", "?"),
-                    actor=source.get("actor", "?")))
+                    actor=source.get("actor", "?"),
+                    content_type=source.get("content_type", "?")))
 
     def _axis_b_observations(self, observations):
         if not observations:
