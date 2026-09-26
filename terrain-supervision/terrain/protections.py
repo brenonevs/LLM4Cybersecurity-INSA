@@ -29,6 +29,10 @@ class Protection:
     def reinitialiser(self) -> None:
         pass
 
+    def nouvel_episode(self) -> None:
+        """Reset any state that must not cross independent experiments."""
+        pass
+
     def observations(self) -> Tuple[object, ...]:
         """Return optional audit observations created while reading data."""
         return ()
@@ -226,6 +230,14 @@ class ScoreConfiance(Protection):
         """Start a task without erasing reputation accumulated in the episode."""
         self._sources_tache.clear()
 
+    def nouvel_episode(self) -> None:
+        """Start an independent experiment from the Beta(1, 1) prior."""
+        self._etats.clear()
+        self._sources_tache.clear()
+        self._versions_vues.clear()
+        self._positive_credit_used.clear()
+        self._observations.clear()
+
     def verifier(self, outil, args, origine_courante):
         # This first step only stores the mathematical state.  It must not
         # change the baseline behaviour or block any tool call yet.
@@ -252,6 +264,10 @@ class Pile(Protection):
     def reinitialiser(self):
         for p in self.protections:
             p.reinitialiser()
+
+    def nouvel_episode(self):
+        for p in self.protections:
+            p.nouvel_episode()
 
     def observer(self, fragment):
         for p in self.protections:

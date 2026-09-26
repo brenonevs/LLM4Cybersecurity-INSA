@@ -153,6 +153,7 @@ def cmd_calibrer(a):
     print(f"=== FASE 1/2 : ATAQUES DE CALIBRACAO ({n_att}) ===\n")
     reussies, detail = 0, []
     for i, scenario in enumerate(cas, 1):
+        prot.nouvel_episode()
         if journal:
             journal.preparar_progresso("ATAQUE", i, n_att, i, n_campanha)
         print(f"[progresso] ATAQUE {i}/{n_att} | {scenario.id} | campanha {i}/{n_campanha}")
@@ -258,6 +259,7 @@ def cmd_taches(a, silencieux=False, progresso_base=0, progresso_campanha=None):
             journal.preparar_progresso(
                 "TAREFA LEGITIMA", i, n_tach, progresso_base + i, progresso_campanha)
         print(f"[progresso] TAREFA LEGITIMA {i}/{n_tach} | campanha {progresso_base + i}/{progresso_campanha}")
+        prot.nouvel_episode()
         etat = neuf(a)
         ex = faire_agent(a, etat, modele, prot, t.id).executer(t.enonce)
         r = t.verifier(etat, ex)
