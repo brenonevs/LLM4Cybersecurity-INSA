@@ -246,6 +246,20 @@ class Journal:
             self._write("AXIS B CONTINUOUS EPISODE STEP")
             self._label("Step", event["label"])
             self._axis_b_observations([event["observation"]])
+        elif name == "classification_case":
+            self._write(f"CLASSIFICATION CASE: {event['case_id']}")
+            self._label("Expected class", event["expected"])
+            self._label("Outcome", event["outcome"])
+        elif name == "classification_summary":
+            self._heading("AXIS B CLASSIFICATION SUMMARY")
+            self._label("True positives", event["true_positive"])
+            self._label("False positives", event["false_positive"])
+            self._label("True negatives", event["true_negative"])
+            self._label("False negatives", event["false_negative"])
+            self._label("Recall", f"{event['recall']:.2%}")
+            self._label("Precision", f"{event['precision']:.2%}")
+            self._label("False-positive rate", f"{event['false_positive_rate']:.2%}")
+            self._label("False-negative rate", f"{event['false_negative_rate']:.2%}")
         elif name == "execution_fin":
             self._write("EXECUTION END")
             self._label("Reason", event["raison"])

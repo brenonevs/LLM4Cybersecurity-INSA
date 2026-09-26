@@ -18,6 +18,7 @@ import json
 
 from terrain import corpus as C
 from terrain.agent import Agent
+from terrain.classification import ClassificationMetrics
 from terrain.juge import juger
 from terrain.journal import Journal
 from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
@@ -259,6 +260,80 @@ def cmd_continuous(a):
                             f"Final trust: {state.confiance:.2f}")
 
 
+def _injected_evidence(etat, target):
+    """Return the exact injected field as an Axis B evidence item."""
+    kind, record_id, field = target
+    if kind == "journal":
+        record = etat.corpus.journaux[int(record_id)]
+    else:
+        records = getattr(etat.corpus, f"{kind}s")
+        record = next(item for item in records if item.id == record_id)
+    author = etat.corpus.authors[record.author_id]
+    reference = SourceReference(f"{kind}:{record_id}:{field}", kind, record_id, field,
+                                author.origin, author.id, "text")
+    return SourceEvidence(reference, getattr(record, field))
+
+
+def _has_unfavorable_observation(protection):
+    return any(item.evaluation.result == "unfavorable"
+               for item in protection.observations())
+
+
+def cmd_classification(a):
+    """Measure Axis B classification against official attacks and legitimate tasks."""
+    metrics = ClassificationMetrics()
+    print("AXIS B CLASSIFICATION CAMPAIGN")
+    print("Positive class: task contains unfavorable evidence.\n")
+
+    for scenario in scenarios_calibration_officielle():
+        state = neuf(a)
+        charge = scenario.charge.format(
+            equipement_injustifie=next(eq for eq in state.corpus.equipements
+                                        if eq not in {ticket.equipement for ticket in state.corpus.tickets
+                                                      if ticket.statut == "ouvert" and not ticket.externe}))
+        C.injecter(state.corpus, scenario.cible, charge)
+        protection = ScoreConfiance()
+        protection.nouvel_episode()
+        protection.observer(Fragment("injected attack evidence",
+                                    evidences=[_injected_evidence(state, scenario.cible)]))
+        outcome = metrics.add(True, _has_unfavorable_observation(protection))
+        print(f"ATTACK {scenario.id}: {outcome}")
+        if getattr(a, "_journal", None):
+            a._journal.noter("classification_case", case_id=scenario.id,
+                             expected="unfavorable", outcome=outcome)
+
+    for task in taches():
+        state = neuf(a)
+        protection = ScoreConfiance()
+        protection.nouvel_episode()
+        Agent(state, SimulateurFaible(), protection).executer(task.enonce)
+        outcome = metrics.add(False, _has_unfavorable_observation(protection))
+        print(f"LEGITIMATE {task.id}: {outcome}")
+        if getattr(a, "_journal", None):
+            a._journal.noter("classification_case", case_id=task.id,
+                             expected="legitimate", outcome=outcome)
+
+    print("\nCLASSIFICATION SUMMARY")
+    print(f"True positives: {metrics.true_positive}")
+    print(f"False positives: {metrics.false_positive}")
+    print(f"True negatives: {metrics.true_negative}")
+    print(f"False negatives: {metrics.false_negative}")
+    print(f"Recall: {metrics.recall:.2%}")
+    print(f"Precision: {metrics.precision:.2%}")
+    print(f"False-positive rate: {metrics.false_positive_rate:.2%}")
+    print(f"False-negative rate: {metrics.false_negative_rate:.2%}")
+    if getattr(a, "_journal", None):
+        a._journal.noter("classification_summary",
+                         true_positive=metrics.true_positive,
+                         false_positive=metrics.false_positive,
+                         true_negative=metrics.true_negative,
+                         false_negative=metrics.false_negative,
+                         recall=metrics.recall,
+                         precision=metrics.precision,
+                         false_positive_rate=metrics.false_positive_rate,
+                         false_negative_rate=metrics.false_negative_rate)
+
+
 def cmd_diagnostic(a):
     """Trois verifications avant toute calibration."""
     modele = faire_modele(a)
@@ -347,7 +422,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("commande",
-                   choices=["diagnostic", "calibrer", "isolated", "continuous", "taches", "attaque", "points"])
+                   choices=["diagnostic", "calibrer", "isolated", "continuous", "classification", "taches", "attaque", "points"])
     p.add_argument("--modele", default="simulateur", choices=["simulateur", "ollama"])
     p.add_argument("--ollama-modele", default="qwen2.5:7b")
     p.add_argument("--ollama-hote", default="http://localhost:11434")
@@ -375,7 +450,7 @@ def main():
                              budget_resultats_modele=BUDGET_RESULTATS_MODELE,
                              systeme_version=SYSTEME_VERSION)
         {"diagnostic": cmd_diagnostic, "calibrer": cmd_calibrer, "isolated": cmd_calibrer,
-         "continuous": cmd_continuous, "taches": cmd_taches,
+         "continuous": cmd_continuous, "classification": cmd_classification, "taches": cmd_taches,
          "attaque": cmd_attaque, "points": cmd_points}[a.commande](a)
         if a._journal:
             a._journal.noter("campagne_fin", raison="terminee")

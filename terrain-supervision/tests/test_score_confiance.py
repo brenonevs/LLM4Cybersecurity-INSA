@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from terrain.agent import Agent
+from terrain.classification import ClassificationMetrics
 from terrain.corpus import generer
 from terrain.outils import Etat, Fragment, SourceEvidence, SourceReference
 from terrain.protections import ScoreConfiance, construire
@@ -334,6 +335,34 @@ def test_continuous_cli_preserves_one_reputation_episode(capsys):
     assert "Step 1 — valid measurement: favorable" in output
     assert "Step 4 — critical instruction: unfavorable (critical, beta+=2)" in output
     assert "Final trust: 0.46 (alpha=3, beta=3.5)" in output
+
+
+def test_classification_metrics_cover_all_confusion_matrix_cells():
+    metrics = ClassificationMetrics()
+    assert metrics.add(True, True) == "TP"
+    assert metrics.add(False, True) == "FP"
+    assert metrics.add(False, False) == "TN"
+    assert metrics.add(True, False) == "FN"
+
+    assert (metrics.true_positive, metrics.false_positive,
+            metrics.true_negative, metrics.false_negative, metrics.total) == (1, 1, 1, 1, 4)
+    assert metrics.recall == metrics.precision == 0.5
+    assert metrics.false_positive_rate == metrics.false_negative_rate == 0.5
+
+
+def test_classification_cli_reports_every_task_class(capsys):
+    from argparse import Namespace
+    from run import cmd_classification
+
+    cmd_classification(Namespace())
+    output = capsys.readouterr().out
+    assert "AXIS B CLASSIFICATION CAMPAIGN" in output
+    assert output.count("ATTACK ") == 30
+    assert output.count("LEGITIMATE ") == 48
+    assert "True positives:" in output
+    assert "False positives:" in output
+    assert "True negatives:" in output
+    assert "False negatives:" in output
 
 
 @pytest.mark.parametrize("field, content_type, content, expected_reason", [
