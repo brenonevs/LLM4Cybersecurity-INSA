@@ -132,7 +132,7 @@ class Journal:
         for item in observations:
             self._write(
                 "  - {source_key} | author={author_id} | category={record_kind} | "
-                "result={result}".format(**item))
+                "result={result} | severity={severity} | weight={weight:g}".format(**item))
             self._write(f"    reasons: {', '.join(item['reasons']) or 'none'}")
             self._write(
                 "    trust state: alpha {alpha_before} -> {alpha_after}; "

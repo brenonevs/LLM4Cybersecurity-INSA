@@ -17,6 +17,7 @@ from .outils import SourceEvidence
 FAVORABLE = "favorable"
 NEUTRAL = "neutral"
 UNFAVORABLE = "unfavorable"
+MAX_NEGATIVE_WEIGHT = 2.0
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class Evaluation:
     result: str
     reasons: Tuple[str, ...] = ()
     weight: float = 1.0
+    severity: str = "none"
 
 
 def _normaliser(texte: str) -> str:
@@ -34,6 +36,16 @@ def _normaliser(texte: str) -> str:
 
 def _contient(texte: str, motifs: Tuple[str, ...]) -> bool:
     return any(re.search(motif, texte) is not None for motif in motifs)
+
+
+def _negative_severity(weight: float) -> str:
+    if weight >= 2.0:
+        return "critical"
+    if weight >= 1.5:
+        return "high"
+    if weight >= 1.0:
+        return "medium"
+    return "low"
 
 
 OVERRIDE_PATTERNS = (
@@ -88,9 +100,13 @@ def _evaluate_text(text: str) -> Evaluation:
     if external_destination:
         reasons.append("external_destination_reference")
 
-    if override or (directive and (sensitive or external_destination)):
-        return Evaluation(UNFAVORABLE, tuple(reasons))
-    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0)
+    if override and directive and (sensitive or external_destination):
+        return Evaluation(UNFAVORABLE, tuple(reasons), 2.0, "critical")
+    if directive and (sensitive or external_destination):
+        return Evaluation(UNFAVORABLE, tuple(reasons), 1.5, "high")
+    if override:
+        return Evaluation(UNFAVORABLE, tuple(reasons), 1.0, "medium")
+    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none")
 
 
 def _evaluate_measure(text: str) -> Evaluation:
@@ -99,8 +115,8 @@ def _evaluate_measure(text: str) -> Evaluation:
     if match:
         temperature, humidity = (float(value) for value in match.groups())
         if -50.0 <= temperature <= 100.0 and 0.0 <= humidity <= 100.0:
-            return Evaluation(FAVORABLE, ("expected_measure_format",))
-        return Evaluation(UNFAVORABLE, ("measurement_out_of_range",))
+            return Evaluation(FAVORABLE, ("expected_measure_format",), 1.0, "positive")
+        return Evaluation(UNFAVORABLE, ("measurement_out_of_range",), 0.5, "low")
 
     return _evaluate_unexpected_structured_value(text, "unexpected_measure_format")
 
@@ -112,10 +128,11 @@ def _evaluate_unexpected_structured_value(text: str, format_reason: str) -> Eval
                          if reason != "no_strong_signal")
     reasons = (format_reason,) + text_reasons
     if text_evaluation.result == UNFAVORABLE:
-        return Evaluation(UNFAVORABLE, reasons)
+        weight = min(MAX_NEGATIVE_WEIGHT, text_evaluation.weight + 0.5)
+        return Evaluation(UNFAVORABLE, reasons, weight, _negative_severity(weight))
     # The value is unreliable because it violates the declared technical
     # schema, but this result does not claim that an attacker caused it.
-    return Evaluation(UNFAVORABLE, reasons, weight=0.5)
+    return Evaluation(UNFAVORABLE, reasons, weight=0.5, severity="low")
 
 
 def _evaluate_timestamp(text: str) -> Evaluation:
@@ -123,12 +140,12 @@ def _evaluate_timestamp(text: str) -> Evaluation:
         datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
     except ValueError:
         return _evaluate_unexpected_structured_value(text, "unexpected_timestamp_format")
-    return Evaluation(FAVORABLE, ("expected_timestamp_format",))
+    return Evaluation(FAVORABLE, ("expected_timestamp_format",), 1.0, "positive")
 
 
 def _evaluate_status(text: str) -> Evaluation:
     if _normaliser(text) in {"ouvert", "clos"}:
-        return Evaluation(FAVORABLE, ("expected_status_value",))
+        return Evaluation(FAVORABLE, ("expected_status_value",), 1.0, "positive")
     return _evaluate_unexpected_structured_value(text, "unexpected_status_value")
 
 
@@ -137,7 +154,7 @@ EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 def _evaluate_email_address(text: str) -> Evaluation:
     if EMAIL_ADDRESS_PATTERN.fullmatch(text.strip()):
-        return Evaluation(FAVORABLE, ("expected_email_address_format",))
+        return Evaluation(FAVORABLE, ("expected_email_address_format",), 1.0, "positive")
     return _evaluate_unexpected_structured_value(text, "unexpected_email_address_format")
 
 

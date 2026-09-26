@@ -145,6 +145,8 @@ class Agent:
                                        "version": item.version,
                                        "result": item.evaluation.result,
                                        "reasons": list(item.evaluation.reasons),
+                                       "severity": item.evaluation.severity,
+                                       "weight": item.evaluation.weight,
                                        "alpha_before": item.alpha_before,
                                        "beta_before": item.beta_before,
                                        "alpha_after": item.alpha_after,
