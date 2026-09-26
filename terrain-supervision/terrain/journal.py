@@ -242,6 +242,10 @@ class Journal:
             self._block("Full result", event.get("texte_complet", ""))
             self._sources(event.get("sources", []))
             self._axis_b_observations(event.get("axis_b_observations", []))
+        elif name == "axis_b_episode_step":
+            self._write("AXIS B CONTINUOUS EPISODE STEP")
+            self._label("Step", event["label"])
+            self._axis_b_observations([event["observation"]])
         elif name == "execution_fin":
             self._write("EXECUTION END")
             self._label("Reason", event["raison"])

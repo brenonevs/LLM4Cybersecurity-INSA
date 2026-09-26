@@ -324,6 +324,18 @@ def test_protection_stack_forwards_new_episode_to_axis_b_state():
     assert protection.observations() == ()
 
 
+def test_continuous_cli_preserves_one_reputation_episode(capsys):
+    from argparse import Namespace
+    from run import cmd_continuous
+
+    cmd_continuous(Namespace(_journal=None))
+    output = capsys.readouterr().out
+    assert "CONTINUOUS AXIS B REPUTATION EPISODE" in output
+    assert "Step 1 — valid measurement: favorable" in output
+    assert "Step 4 — critical instruction: unfavorable (critical, beta+=2)" in output
+    assert "Final trust: 0.46 (alpha=3, beta=3.5)" in output
+
+
 @pytest.mark.parametrize("field, content_type, content, expected_reason", [
     ("horodatage", "timestamp", "2026-03-24T06:00:00Z", "expected_timestamp_format"),
     ("statut", "status", "ouvert", "expected_status_value"),
