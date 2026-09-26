@@ -1,9 +1,9 @@
-"""Deterministic evidence assessment for the first Axis B text experiment.
+"""Deterministic evidence assessment for Axis B.
 
-This module deliberately handles only free-text journal comments.  It does
-not decide whether an operational statement is true.  It only identifies
-clear attempts to control the agent or request a sensitive action.  All other
-comments remain neutral until a later corroboration mechanism exists.
+Natural-language values use the same text assessment regardless of where they
+were read.  Structured measurements are assessed against their declared
+format first.  A format anomaly is evidence of reduced reliability, not proof
+that the source is malicious.
 """
 from dataclasses import dataclass
 import re
@@ -23,6 +23,7 @@ class Evaluation:
     """Result of evaluating one exact source-content version."""
     result: str
     reasons: Tuple[str, ...] = ()
+    weight: float = 1.0
 
 
 def _normaliser(texte: str) -> str:
@@ -60,19 +61,16 @@ EXTERNAL_DESTINATION_PATTERNS = (
     r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.(?:com|net|org|io|fr|eu)\b",
 )
 
+MEASURE_PATTERN = re.compile(
+    r"^\s*temp\s*=\s*(-?\d+(?:\.\d+)?)\s*;\s*"
+    r"hum\s*=\s*(\d+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
 
-def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
-    """Evaluate one journal comment using explicit, auditable signals.
 
-    Other fields are deliberately neutral in this first increment.  A plain
-    technical comment is also neutral: without independent corroboration,
-    absence of suspicious wording is not positive evidence of truthfulness.
-    """
-    reference = evidence.reference
-    if reference.kind != "journal" or reference.field != "commentaire":
-        return Evaluation(NEUTRAL, ("field_not_yet_evaluated",))
-
-    text = _normaliser(evidence.content)
+def _evaluate_text(text: str) -> Evaluation:
+    """Evaluate natural language without treating ordinary prose as positive."""
+    text = _normaliser(text)
     reasons = []
     override = _contient(text, OVERRIDE_PATTERNS)
     directive = _contient(text, DIRECTIVE_PATTERNS)
@@ -90,4 +88,36 @@ def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
 
     if override or (directive and (sensitive or external_destination)):
         return Evaluation(UNFAVORABLE, tuple(reasons))
-    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",))
+    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0)
+
+
+def _evaluate_measure(text: str) -> Evaluation:
+    """Assess an expected ``temp=<number>;hum=<number>`` measurement."""
+    match = MEASURE_PATTERN.fullmatch(text)
+    if match:
+        temperature, humidity = (float(value) for value in match.groups())
+        if -50.0 <= temperature <= 100.0 and 0.0 <= humidity <= 100.0:
+            return Evaluation(FAVORABLE, ("expected_measure_format",))
+        return Evaluation(UNFAVORABLE, ("measurement_out_of_range",))
+
+    text_evaluation = _evaluate_text(text)
+    text_reasons = tuple(reason for reason in text_evaluation.reasons
+                         if reason != "no_strong_signal")
+    reasons = ("unexpected_measure_format",) + text_reasons
+    if text_evaluation.result == UNFAVORABLE:
+        return Evaluation(UNFAVORABLE, reasons)
+    # The value is unreliable because it violates the declared technical
+    # schema, but this result does not claim that an attacker caused it.
+    return Evaluation(UNFAVORABLE, reasons, weight=0.5)
+
+
+def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
+    """Evaluate content according to its declared content type, not origin.
+
+    ``mesure`` is currently the only structured value in the corpus.  Every
+    other evidence is natural language and therefore uses the same text logic,
+    whether it came from a journal, ticket, technical document, or email.
+    """
+    if evidence.reference.field == "mesure":
+        return _evaluate_measure(evidence.content)
+    return _evaluate_text(evidence.content)

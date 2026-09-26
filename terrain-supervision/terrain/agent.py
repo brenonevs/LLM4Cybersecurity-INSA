@@ -149,6 +149,7 @@ class Agent:
                                        "beta_before": item.beta_before,
                                        "alpha_after": item.alpha_after,
                                        "beta_after": item.beta_after,
+                                       "trust_update": item.trust_update,
                                    } for item in new_observations],
                                    observation=historique[-1])
                 self.journal.annoncer_resultat(nom, fragment.texte)

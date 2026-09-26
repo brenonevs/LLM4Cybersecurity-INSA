@@ -135,6 +135,7 @@ class Journal:
             self._write(
                 "    trust state: alpha {alpha_before} -> {alpha_after}; "
                 "beta {beta_before} -> {beta_after}".format(**item))
+            self._write(f"    applied update: {item['trust_update']}")
             self._write(f"    content version (SHA-256): {item['version']}")
 
     def preparar_progresso(self, phase, index, total, campaign_index=None, campaign_total=None):

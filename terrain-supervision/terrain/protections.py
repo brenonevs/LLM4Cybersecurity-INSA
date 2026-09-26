@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import hashlib
 from typing import Dict, List, Optional, Set, Tuple
 
-from .evaluation import Evaluation, UNFAVORABLE, evaluate_evidence
+from .evaluation import FAVORABLE, Evaluation, UNFAVORABLE, evaluate_evidence
 from .outils import Fragment, est_interne
 
 
@@ -120,6 +120,7 @@ class ObservationConfiance:
     beta_before: float
     alpha_after: float
     beta_after: float
+    trust_update: str
 
 
 class ScoreConfiance(Protection):
@@ -135,6 +136,7 @@ class ScoreConfiance(Protection):
         self._etats: Dict[Tuple[str, str], EtatConfiance] = {}
         self._sources_tache: Dict[Tuple[str, str], Set[str]] = {}
         self._versions_vues: Dict[str, Set[str]] = {}
+        self._positive_credit_used: Set[str] = set()
         self._observations: List[ObservationConfiance] = []
 
     @staticmethod
@@ -160,8 +162,10 @@ class ScoreConfiance(Protection):
 
         A source key is evidence of one concrete field.  Keeping the keys in a
         set means rereading the same field does not create a second observation
-        entry.  Only a new journal-comment version with a clear unfavorable
-        result increments beta in this first increment.  Nothing blocks tools.
+        entry.  Every new version is evaluated according to its content type.
+        A favorable field receives positive credit at most once; every new
+        unfavorable version contributes negative evidence.  Nothing blocks
+        tools in this phase.
         """
         sources = fragment.sources
         if fragment.evidences:
@@ -178,16 +182,20 @@ class ScoreConfiance(Protection):
                 continue
             versions.add(version)
 
-            # Version tracking is useful for every field.  The first evaluator
-            # intentionally has a narrower scope: free-text journal comments.
-            if (evidence.reference.kind, evidence.reference.field) != ("journal", "commentaire"):
-                continue
-
             state = self.etat(evidence.reference.actor, evidence.reference.kind)
             alpha_before, beta_before = state.alpha, state.beta
             evaluation = evaluate_evidence(evidence)
-            if evaluation.result == UNFAVORABLE:
-                state.beta += 1.0
+            trust_update = "none"
+            if evaluation.result == FAVORABLE:
+                if evidence.reference.key not in self._positive_credit_used:
+                    state.alpha += evaluation.weight
+                    self._positive_credit_used.add(evidence.reference.key)
+                    trust_update = f"alpha+={evaluation.weight:g}"
+                else:
+                    trust_update = "positive_credit_already_used"
+            elif evaluation.result == UNFAVORABLE:
+                state.beta += evaluation.weight
+                trust_update = f"beta+={evaluation.weight:g}"
             self._observations.append(ObservationConfiance(
                 source_key=evidence.reference.key,
                 author_id=evidence.reference.actor,
@@ -198,6 +206,7 @@ class ScoreConfiance(Protection):
                 beta_before=beta_before,
                 alpha_after=state.alpha,
                 beta_after=state.beta,
+                trust_update=trust_update,
             ))
 
     def sources_tache(self) -> Dict[Tuple[str, str], Tuple[str, ...]]:
