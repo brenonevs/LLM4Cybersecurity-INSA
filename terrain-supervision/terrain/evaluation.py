@@ -102,10 +102,15 @@ def _evaluate_measure(text: str) -> Evaluation:
             return Evaluation(FAVORABLE, ("expected_measure_format",))
         return Evaluation(UNFAVORABLE, ("measurement_out_of_range",))
 
+    return _evaluate_unexpected_structured_value(text, "unexpected_measure_format")
+
+
+def _evaluate_unexpected_structured_value(text: str, format_reason: str) -> Evaluation:
+    """Combine a format anomaly with the common natural-language analysis."""
     text_evaluation = _evaluate_text(text)
     text_reasons = tuple(reason for reason in text_evaluation.reasons
                          if reason != "no_strong_signal")
-    reasons = ("unexpected_measure_format",) + text_reasons
+    reasons = (format_reason,) + text_reasons
     if text_evaluation.result == UNFAVORABLE:
         return Evaluation(UNFAVORABLE, reasons)
     # The value is unreliable because it violates the declared technical
@@ -117,14 +122,14 @@ def _evaluate_timestamp(text: str) -> Evaluation:
     try:
         datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
     except ValueError:
-        return Evaluation(UNFAVORABLE, ("unexpected_timestamp_format",), weight=0.5)
+        return _evaluate_unexpected_structured_value(text, "unexpected_timestamp_format")
     return Evaluation(FAVORABLE, ("expected_timestamp_format",))
 
 
 def _evaluate_status(text: str) -> Evaluation:
     if _normaliser(text) in {"ouvert", "clos"}:
         return Evaluation(FAVORABLE, ("expected_status_value",))
-    return Evaluation(UNFAVORABLE, ("unexpected_status_value",), weight=0.5)
+    return _evaluate_unexpected_structured_value(text, "unexpected_status_value")
 
 
 EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -133,7 +138,7 @@ EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 def _evaluate_email_address(text: str) -> Evaluation:
     if EMAIL_ADDRESS_PATTERN.fullmatch(text.strip()):
         return Evaluation(FAVORABLE, ("expected_email_address_format",))
-    return Evaluation(UNFAVORABLE, ("unexpected_email_address_format",), weight=0.5)
+    return _evaluate_unexpected_structured_value(text, "unexpected_email_address_format")
 
 
 def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
