@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 from typing import Dict, List, Optional, Set, Tuple
 
+from .evaluation import Evaluation, UNFAVORABLE, evaluate_evidence
 from .outils import Fragment, est_interne
 
 
@@ -27,6 +28,10 @@ class Protection:
 
     def reinitialiser(self) -> None:
         pass
+
+    def observations(self) -> Tuple[object, ...]:
+        """Return optional audit observations created while reading data."""
+        return ()
 
 
 class SansProtection(Protection):
@@ -91,8 +96,7 @@ class EtatConfiance:
     """Beta-distribution parameters for one author and record category.
 
     The initial values alpha=1 and beta=1 express an unknown source with a
-    neutral expected trust of 0.5.  Evidence updates are deliberately not part
-    of this first implementation step.
+    neutral expected trust of 0.5.
     """
     author_id: str
     record_kind: str
@@ -102,6 +106,20 @@ class EtatConfiance:
     @property
     def confiance(self) -> float:
         return self.alpha / (self.alpha + self.beta)
+
+
+@dataclass(frozen=True)
+class ObservationConfiance:
+    """Auditable result of one new content version evaluated by Axis B."""
+    source_key: str
+    author_id: str
+    record_kind: str
+    version: str
+    evaluation: Evaluation
+    alpha_before: float
+    beta_before: float
+    alpha_after: float
+    beta_after: float
 
 
 class ScoreConfiance(Protection):
@@ -117,6 +135,7 @@ class ScoreConfiance(Protection):
         self._etats: Dict[Tuple[str, str], EtatConfiance] = {}
         self._sources_tache: Dict[Tuple[str, str], Set[str]] = {}
         self._versions_vues: Dict[str, Set[str]] = {}
+        self._observations: List[ObservationConfiance] = []
 
     @staticmethod
     def _cle(author_id: str, record_kind: str) -> Tuple[str, str]:
@@ -141,7 +160,8 @@ class ScoreConfiance(Protection):
 
         A source key is evidence of one concrete field.  Keeping the keys in a
         set means rereading the same field does not create a second observation
-        entry.  This step intentionally does not update alpha or beta yet.
+        entry.  Only a new journal-comment version with a clear unfavorable
+        result increments beta in this first increment.  Nothing blocks tools.
         """
         sources = fragment.sources
         if fragment.evidences:
@@ -153,7 +173,32 @@ class ScoreConfiance(Protection):
 
         for evidence in fragment.evidences:
             version = hashlib.sha256(evidence.content.encode("utf-8")).hexdigest()
-            self._versions_vues.setdefault(evidence.reference.key, set()).add(version)
+            versions = self._versions_vues.setdefault(evidence.reference.key, set())
+            if version in versions:
+                continue
+            versions.add(version)
+
+            # Version tracking is useful for every field.  The first evaluator
+            # intentionally has a narrower scope: free-text journal comments.
+            if (evidence.reference.kind, evidence.reference.field) != ("journal", "commentaire"):
+                continue
+
+            state = self.etat(evidence.reference.actor, evidence.reference.kind)
+            alpha_before, beta_before = state.alpha, state.beta
+            evaluation = evaluate_evidence(evidence)
+            if evaluation.result == UNFAVORABLE:
+                state.beta += 1.0
+            self._observations.append(ObservationConfiance(
+                source_key=evidence.reference.key,
+                author_id=evidence.reference.actor,
+                record_kind=evidence.reference.kind,
+                version=version,
+                evaluation=evaluation,
+                alpha_before=alpha_before,
+                beta_before=beta_before,
+                alpha_after=state.alpha,
+                beta_after=state.beta,
+            ))
 
     def sources_tache(self) -> Dict[Tuple[str, str], Tuple[str, ...]]:
         """Return a serializable snapshot of the sources seen in this task."""
@@ -163,6 +208,10 @@ class ScoreConfiance(Protection):
     def versions_vues(self, source_key: str) -> Tuple[str, ...]:
         """Return hashes for every distinct content version read in this episode."""
         return tuple(sorted(self._versions_vues.get(source_key, set())))
+
+    def observations(self) -> Tuple[ObservationConfiance, ...]:
+        """Return the evaluation trail for new content versions in this episode."""
+        return tuple(self._observations)
 
     def reinitialiser(self) -> None:
         """Start a task without erasing reputation accumulated in the episode."""
@@ -205,6 +254,11 @@ class Pile(Protection):
             if motif:
                 return f"[{p.nom}] {motif}"
         return None
+
+    def observations(self) -> Tuple[object, ...]:
+        return tuple(observation
+                     for protection in self.protections
+                     for observation in protection.observations())
 
 
 CATALOGUE = {

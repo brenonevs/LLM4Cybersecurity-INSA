@@ -123,6 +123,20 @@ class Journal:
                     field=source.get("field", "?"), origin=source.get("origin", "?"),
                     actor=source.get("actor", "?")))
 
+    def _axis_b_observations(self, observations):
+        if not observations:
+            return
+        self._write("AXIS B EVIDENCE ASSESSMENT:")
+        for item in observations:
+            self._write(
+                "  - {source_key} | author={author_id} | category={record_kind} | "
+                "result={result}".format(**item))
+            self._write(f"    reasons: {', '.join(item['reasons']) or 'none'}")
+            self._write(
+                "    trust state: alpha {alpha_before} -> {alpha_after}; "
+                "beta {beta_before} -> {beta_after}".format(**item))
+            self._write(f"    content version (SHA-256): {item['version']}")
+
     def preparar_progresso(self, phase, index, total, campaign_index=None, campaign_total=None):
         self.progresso_fase = phase
         self.progresso_indice = index
@@ -224,6 +238,7 @@ class Journal:
             self._label("Aggregate source", event.get("source", "?"))
             self._block("Full result", event.get("texte_complet", ""))
             self._sources(event.get("sources", []))
+            self._axis_b_observations(event.get("axis_b_observations", []))
         elif name == "execution_fin":
             self._write("EXECUTION END")
             self._label("Reason", event["raison"])

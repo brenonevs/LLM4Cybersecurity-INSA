@@ -124,8 +124,10 @@ class Agent:
                     return Execution(tache, trace, message, etape)
                 continue
 
+            observations_before = len(self.protection.observations())
             fragment: Fragment = self.outils.appeler(nom, args)
             self.protection.observer(fragment)
+            new_observations = self.protection.observations()[observations_before:]
 
             appel.resultat = fragment.texte[:2000]
             trace.append(appel)
@@ -136,6 +138,18 @@ class Agent:
                                    texte_complet=fragment.texte, origine=fragment.origine,
                                    source=fragment.source,
                                    sources=[source.as_dict() for source in fragment.sources],
+                                   axis_b_observations=[{
+                                       "source_key": item.source_key,
+                                       "author_id": item.author_id,
+                                       "record_kind": item.record_kind,
+                                       "version": item.version,
+                                       "result": item.evaluation.result,
+                                       "reasons": list(item.evaluation.reasons),
+                                       "alpha_before": item.alpha_before,
+                                       "beta_before": item.beta_before,
+                                       "alpha_after": item.alpha_after,
+                                       "beta_after": item.beta_after,
+                                   } for item in new_observations],
                                    observation=historique[-1])
                 self.journal.annoncer_resultat(nom, fragment.texte)
 
