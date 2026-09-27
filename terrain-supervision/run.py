@@ -19,6 +19,7 @@ import json
 from terrain import corpus as C
 from terrain.agent import Agent
 from terrain.classification import ClassificationMetrics
+from terrain.embedding_dataset import summary as embedding_dataset_summary
 from terrain.juge import juger
 from terrain.journal import Journal
 from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
@@ -64,6 +65,18 @@ def cmd_points(a):
         print(f"  {genre:8s} {ident:10s} champ={champ}")
     if len(pts) > 40:
         print(f"  ... et {len(pts)-40} autres")
+
+
+def cmd_embedding_dataset(a):
+    """Verify the frozen splits required before embedding experiments."""
+    dataset = embedding_dataset_summary()
+    print("AXIS B EMBEDDING DATASET")
+    print(f"Version: {dataset['version']}")
+    print(f"Development examples: {dataset['development_total']} "
+          f"({dataset['development_attacks']} unfavorable)")
+    print(f"Validation examples: {dataset['validation_total']} "
+          f"({dataset['validation_attacks']} unfavorable)")
+    print("Status: splits are disjoint and ready for model selection.")
 
 
 def _une_attaque(a, charge, cible=None, cas="attaque"):
@@ -473,7 +486,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("commande",
-                   choices=["diagnostic", "calibrer", "isolated", "continuous", "classification", "taches", "attaque", "points"])
+                   choices=["diagnostic", "calibrer", "isolated", "continuous", "classification", "taches", "attaque", "points", "embedding-dataset"])
     p.add_argument("--modele", default="simulateur", choices=["simulateur", "ollama"])
     p.add_argument("--ollama-modele", default="qwen2.5:7b")
     p.add_argument("--ollama-hote", default="http://localhost:11434")
@@ -502,7 +515,8 @@ def main():
                              systeme_version=SYSTEME_VERSION)
         {"diagnostic": cmd_diagnostic, "calibrer": cmd_calibrer, "isolated": cmd_calibrer,
          "continuous": cmd_continuous, "classification": cmd_classification, "taches": cmd_taches,
-         "attaque": cmd_attaque, "points": cmd_points}[a.commande](a)
+         "attaque": cmd_attaque, "points": cmd_points,
+         "embedding-dataset": cmd_embedding_dataset}[a.commande](a)
         if a._journal:
             a._journal.noter("campagne_fin", raison="terminee")
     except BaseException as erreur:
