@@ -138,10 +138,12 @@ class Journal:
             if semantic:
                 self._write(
                     "    semantic observation ({protocol}): category={category}; "
-                    "similarity={score:.2f}".format(**semantic))
+                    "strength={score:.2f}; candidate={candidate}".format(**semantic))
                 self._write(
                     "    matched concepts: " +
                     (", ".join(semantic["matched_concepts"]) or "none"))
+                self._write("    contextual reasons: " +
+                            (", ".join(semantic["reasons"]) or "none"))
                 self._write(f"    closest reference: {semantic['reference']}")
                 self._write("    semantic result: observation only; no trust update")
             self._write(
@@ -276,6 +278,8 @@ class Journal:
                             (", ".join(observation["lexical_reasons"]) or "none"))
                 self._write("    concepts: " +
                             (", ".join(observation["matched_concepts"]) or "none"))
+                self._write("    contextual reasons: " +
+                            (", ".join(observation["semantic_reasons"]) or "none"))
                 self._block("    evidence text", observation["content"])
         elif name == "classification_summary":
             self._heading("AXIS B CLASSIFICATION SUMMARY")
@@ -288,7 +292,6 @@ class Journal:
             self._label("False-positive rate", f"{event['false_positive_rate']:.2%}")
             self._label("False-negative rate", f"{event['false_negative_rate']:.2%}")
             self._label("Semantic protocol", event.get("semantic_protocol", "not recorded"))
-            self._label("Semantic review threshold", event.get("semantic_review_threshold", "not recorded"))
             self._label("False negatives with semantic candidate",
                         event.get("false_negative_semantic_candidates", "not recorded"))
             self._label("Legitimate semantic candidates",

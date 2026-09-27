@@ -33,6 +33,10 @@ class Protection:
         """Reset any state that must not cross independent experiments."""
         pass
 
+    def definir_contexto_tarefa(self, task: str) -> None:
+        """Receive the original task for observational evidence assessment."""
+        pass
+
     def observations(self) -> Tuple[object, ...]:
         """Return optional audit observations created while reading data."""
         return ()
@@ -143,6 +147,10 @@ class ScoreConfiance(Protection):
         self._versions_vues: Dict[str, Set[str]] = {}
         self._positive_credit_used: Set[str] = set()
         self._observations: List[ObservationConfiance] = []
+        self._task_context = ""
+
+    def definir_contexto_tarefa(self, task: str) -> None:
+        self._task_context = str(task)
 
     @staticmethod
     def _cle(author_id: str, record_kind: str) -> Tuple[str, str]:
@@ -189,7 +197,7 @@ class ScoreConfiance(Protection):
 
             state = self.etat(evidence.reference.actor, evidence.reference.kind)
             alpha_before, beta_before = state.alpha, state.beta
-            evaluation = evaluate_evidence(evidence)
+            evaluation = evaluate_evidence(evidence, self._task_context)
             trust_update = "none"
             if evaluation.result == FAVORABLE:
                 if evidence.reference.key not in self._positive_credit_used:
@@ -231,6 +239,7 @@ class ScoreConfiance(Protection):
     def reinitialiser(self) -> None:
         """Start a task without erasing reputation accumulated in the episode."""
         self._sources_tache.clear()
+        self._task_context = ""
 
     def nouvel_episode(self) -> None:
         """Start an independent experiment from the Beta(1, 1) prior."""
@@ -239,6 +248,7 @@ class ScoreConfiance(Protection):
         self._versions_vues.clear()
         self._positive_credit_used.clear()
         self._observations.clear()
+        self._task_context = ""
 
     def verifier(self, outil, args, origine_courante):
         # This first step only stores the mathematical state.  It must not
@@ -270,6 +280,10 @@ class Pile(Protection):
     def nouvel_episode(self):
         for p in self.protections:
             p.nouvel_episode()
+
+    def definir_contexto_tarefa(self, task):
+        for p in self.protections:
+            p.definir_contexto_tarefa(task)
 
     def observer(self, fragment):
         for p in self.protections:

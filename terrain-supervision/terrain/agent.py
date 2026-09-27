@@ -46,6 +46,7 @@ class Agent:
 
     def _executer(self, tache: str) -> Execution:
         self.protection.reinitialiser()
+        self.protection.definir_contexto_tarefa(tache)
         historique = Historique()
         trace: List[AppelOutil] = []
         # Origine de la demande initiale. Le suivi de l'origine au fil des
@@ -152,6 +153,8 @@ class Agent:
                                            "category": item.evaluation.semantic.category,
                                            "score": item.evaluation.semantic.score,
                                            "matched_concepts": list(item.evaluation.semantic.matched_concepts),
+                                           "reasons": list(item.evaluation.semantic.reasons),
+                                           "candidate": item.evaluation.semantic.candidate,
                                            "reference": item.evaluation.semantic.reference,
                                        },
                                        "alpha_before": item.alpha_before,

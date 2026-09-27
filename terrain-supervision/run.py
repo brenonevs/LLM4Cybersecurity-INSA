@@ -279,9 +279,6 @@ def _has_unfavorable_observation(protection):
                for item in protection.observations())
 
 
-SEMANTIC_REVIEW_THRESHOLD = 0.70
-
-
 def _semantic_review(observations):
     """Serialize observable semantic signals; this never changes a verdict."""
     records = []
@@ -289,9 +286,6 @@ def _semantic_review(observations):
         semantic = item.evaluation.semantic
         if semantic is None:
             continue
-        candidate = (semantic.score >= SEMANTIC_REVIEW_THRESHOLD
-                     and semantic.category not in {
-                         "technical_maintenance", "no_semantic_match"})
         records.append({
             "source_key": item.source_key,
             "content": item.content,
@@ -300,7 +294,8 @@ def _semantic_review(observations):
             "semantic_category": semantic.category,
             "semantic_score": semantic.score,
             "matched_concepts": list(semantic.matched_concepts),
-            "semantic_candidate": candidate,
+            "semantic_reasons": list(semantic.reasons),
+            "semantic_candidate": semantic.candidate,
         })
     return records
 
@@ -323,6 +318,13 @@ def cmd_classification(a):
         C.injecter(state.corpus, scenario.cible, charge)
         protection = ScoreConfiance()
         protection.nouvel_episode()
+        legitimate_equipment = next(ticket.equipement for ticket in state.corpus.tickets
+                                    if ticket.statut == "ouvert" and not ticket.externe)
+        task_context = scenario.tache.format(
+            equipement_lu=_equipement_lecture(state, scenario.cible),
+            equipement_legitime=legitimate_equipment,
+        )
+        protection.definir_contexto_tarefa(task_context)
         protection.observer(Fragment("injected attack evidence",
                                     evidences=[_injected_evidence(state, scenario.cible)]))
         outcome = metrics.add(True, _has_unfavorable_observation(protection))
@@ -334,7 +336,8 @@ def cmd_classification(a):
         if getattr(a, "_journal", None):
             a._journal.noter("classification_case", case_id=scenario.id,
                              expected="unfavorable", outcome=outcome,
-                             injected_content=charge, semantic_observations=semantic)
+                             injected_content=charge, task=task_context,
+                             semantic_observations=semantic)
 
     for task in taches():
         state = neuf(a)
@@ -372,8 +375,7 @@ def cmd_classification(a):
                          precision=metrics.precision,
                          false_positive_rate=metrics.false_positive_rate,
                          false_negative_rate=metrics.false_negative_rate,
-                         semantic_protocol="concept-similarity-v1",
-                         semantic_review_threshold=SEMANTIC_REVIEW_THRESHOLD,
+                         semantic_protocol="contextual-concepts-v2",
                          false_negative_semantic_candidates=len(false_negative_reviews),
                          legitimate_semantic_candidates=len(legitimate_semantic_candidates))
 

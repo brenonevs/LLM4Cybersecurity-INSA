@@ -84,9 +84,9 @@ MEASURE_PATTERN = re.compile(
 )
 
 
-def _evaluate_text(text: str) -> Evaluation:
+def _evaluate_text(text: str, task_context: str = "") -> Evaluation:
     """Evaluate natural language without treating ordinary prose as positive."""
-    semantic = assess_text(text)
+    semantic = assess_text(text, task_context)
     text = _normaliser(text)
     reasons = []
     override = _contient(text, OVERRIDE_PATTERNS)
@@ -112,7 +112,7 @@ def _evaluate_text(text: str) -> Evaluation:
     return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none", semantic)
 
 
-def _evaluate_measure(text: str) -> Evaluation:
+def _evaluate_measure(text: str, task_context: str = "") -> Evaluation:
     """Assess an expected ``temp=<number>;hum=<number>`` measurement."""
     match = MEASURE_PATTERN.fullmatch(text)
     if match:
@@ -121,12 +121,13 @@ def _evaluate_measure(text: str) -> Evaluation:
             return Evaluation(FAVORABLE, ("expected_measure_format",), 1.0, "positive")
         return Evaluation(UNFAVORABLE, ("measurement_out_of_range",), 0.5, "low")
 
-    return _evaluate_unexpected_structured_value(text, "unexpected_measure_format")
+    return _evaluate_unexpected_structured_value(text, "unexpected_measure_format", task_context)
 
 
-def _evaluate_unexpected_structured_value(text: str, format_reason: str) -> Evaluation:
+def _evaluate_unexpected_structured_value(text: str, format_reason: str,
+                                          task_context: str = "") -> Evaluation:
     """Combine a format anomaly with the common natural-language analysis."""
-    text_evaluation = _evaluate_text(text)
+    text_evaluation = _evaluate_text(text, task_context)
     text_reasons = tuple(reason for reason in text_evaluation.reasons
                          if reason != "no_strong_signal")
     reasons = (format_reason,) + text_reasons
@@ -140,30 +141,30 @@ def _evaluate_unexpected_structured_value(text: str, format_reason: str) -> Eval
                       semantic=text_evaluation.semantic)
 
 
-def _evaluate_timestamp(text: str) -> Evaluation:
+def _evaluate_timestamp(text: str, task_context: str = "") -> Evaluation:
     try:
         datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
     except ValueError:
-        return _evaluate_unexpected_structured_value(text, "unexpected_timestamp_format")
+        return _evaluate_unexpected_structured_value(text, "unexpected_timestamp_format", task_context)
     return Evaluation(FAVORABLE, ("expected_timestamp_format",), 1.0, "positive")
 
 
-def _evaluate_status(text: str) -> Evaluation:
+def _evaluate_status(text: str, task_context: str = "") -> Evaluation:
     if _normaliser(text) in {"ouvert", "clos"}:
         return Evaluation(FAVORABLE, ("expected_status_value",), 1.0, "positive")
-    return _evaluate_unexpected_structured_value(text, "unexpected_status_value")
+    return _evaluate_unexpected_structured_value(text, "unexpected_status_value", task_context)
 
 
 EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
-def _evaluate_email_address(text: str) -> Evaluation:
+def _evaluate_email_address(text: str, task_context: str = "") -> Evaluation:
     if EMAIL_ADDRESS_PATTERN.fullmatch(text.strip()):
         return Evaluation(FAVORABLE, ("expected_email_address_format",), 1.0, "positive")
-    return _evaluate_unexpected_structured_value(text, "unexpected_email_address_format")
+    return _evaluate_unexpected_structured_value(text, "unexpected_email_address_format", task_context)
 
 
-def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
+def evaluate_evidence(evidence: SourceEvidence, task_context: str = "") -> Evaluation:
     """Evaluate content according to its declared content type, not origin.
 
     The content type belongs to the field metadata, not to the record origin.
@@ -172,11 +173,11 @@ def evaluate_evidence(evidence: SourceEvidence) -> Evaluation:
     """
     content_type = evidence.reference.content_type
     if content_type == "measure":
-        return _evaluate_measure(evidence.content)
+        return _evaluate_measure(evidence.content, task_context)
     if content_type == "timestamp":
-        return _evaluate_timestamp(evidence.content)
+        return _evaluate_timestamp(evidence.content, task_context)
     if content_type == "status":
-        return _evaluate_status(evidence.content)
+        return _evaluate_status(evidence.content, task_context)
     if content_type == "email_address":
-        return _evaluate_email_address(evidence.content)
-    return _evaluate_text(evidence.content)
+        return _evaluate_email_address(evidence.content, task_context)
+    return _evaluate_text(evidence.content, task_context)
