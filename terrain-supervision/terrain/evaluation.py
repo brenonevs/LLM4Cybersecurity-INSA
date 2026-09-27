@@ -9,9 +9,10 @@ from dataclasses import dataclass
 import re
 import unicodedata
 from datetime import datetime
-from typing import Tuple
+from typing import Optional, Tuple
 
 from .outils import SourceEvidence
+from .semantic import SemanticAssessment, assess_text
 
 
 FAVORABLE = "favorable"
@@ -27,6 +28,7 @@ class Evaluation:
     reasons: Tuple[str, ...] = ()
     weight: float = 1.0
     severity: str = "none"
+    semantic: Optional[SemanticAssessment] = None
 
 
 def _normaliser(texte: str) -> str:
@@ -84,6 +86,7 @@ MEASURE_PATTERN = re.compile(
 
 def _evaluate_text(text: str) -> Evaluation:
     """Evaluate natural language without treating ordinary prose as positive."""
+    semantic = assess_text(text)
     text = _normaliser(text)
     reasons = []
     override = _contient(text, OVERRIDE_PATTERNS)
@@ -101,12 +104,12 @@ def _evaluate_text(text: str) -> Evaluation:
         reasons.append("external_destination_reference")
 
     if override and directive and (sensitive or external_destination):
-        return Evaluation(UNFAVORABLE, tuple(reasons), 2.0, "critical")
+        return Evaluation(UNFAVORABLE, tuple(reasons), 2.0, "critical", semantic)
     if directive and (sensitive or external_destination):
-        return Evaluation(UNFAVORABLE, tuple(reasons), 1.5, "high")
+        return Evaluation(UNFAVORABLE, tuple(reasons), 1.5, "high", semantic)
     if override:
-        return Evaluation(UNFAVORABLE, tuple(reasons), 1.0, "medium")
-    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none")
+        return Evaluation(UNFAVORABLE, tuple(reasons), 1.0, "medium", semantic)
+    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none", semantic)
 
 
 def _evaluate_measure(text: str) -> Evaluation:
@@ -129,10 +132,12 @@ def _evaluate_unexpected_structured_value(text: str, format_reason: str) -> Eval
     reasons = (format_reason,) + text_reasons
     if text_evaluation.result == UNFAVORABLE:
         weight = min(MAX_NEGATIVE_WEIGHT, text_evaluation.weight + 0.5)
-        return Evaluation(UNFAVORABLE, reasons, weight, _negative_severity(weight))
+        return Evaluation(UNFAVORABLE, reasons, weight, _negative_severity(weight),
+                          text_evaluation.semantic)
     # The value is unreliable because it violates the declared technical
     # schema, but this result does not claim that an attacker caused it.
-    return Evaluation(UNFAVORABLE, reasons, weight=0.5, severity="low")
+    return Evaluation(UNFAVORABLE, reasons, weight=0.5, severity="low",
+                      semantic=text_evaluation.semantic)
 
 
 def _evaluate_timestamp(text: str) -> Evaluation:

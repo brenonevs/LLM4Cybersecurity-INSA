@@ -134,6 +134,16 @@ class Journal:
                 "  - {source_key} | author={author_id} | category={record_kind} | "
                 "result={result} | severity={severity} | weight={weight:g}".format(**item))
             self._write(f"    reasons: {', '.join(item['reasons']) or 'none'}")
+            semantic = item.get("semantic")
+            if semantic:
+                self._write(
+                    "    semantic observation ({protocol}): category={category}; "
+                    "similarity={score:.2f}".format(**semantic))
+                self._write(
+                    "    matched concepts: " +
+                    (", ".join(semantic["matched_concepts"]) or "none"))
+                self._write(f"    closest reference: {semantic['reference']}")
+                self._write("    semantic result: observation only; no trust update")
             self._write(
                 "    trust state: alpha {alpha_before} -> {alpha_after}; "
                 "beta {beta_before} -> {beta_after}".format(**item))

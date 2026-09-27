@@ -147,6 +147,13 @@ class Agent:
                                        "reasons": list(item.evaluation.reasons),
                                        "severity": item.evaluation.severity,
                                        "weight": item.evaluation.weight,
+                                       "semantic": None if item.evaluation.semantic is None else {
+                                           "protocol": item.evaluation.semantic.protocol,
+                                           "category": item.evaluation.semantic.category,
+                                           "score": item.evaluation.semantic.score,
+                                           "matched_concepts": list(item.evaluation.semantic.matched_concepts),
+                                           "reference": item.evaluation.semantic.reference,
+                                       },
                                        "alpha_before": item.alpha_before,
                                        "beta_before": item.beta_before,
                                        "alpha_after": item.alpha_after,
