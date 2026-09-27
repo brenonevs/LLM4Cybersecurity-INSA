@@ -8,7 +8,8 @@ from .embedding_dataset import DEVELOPMENT, VALIDATION, EmbeddingExample
 
 
 def _input(example: EmbeddingExample) -> str:
-    return f"Technician task: {example.task}\nRead text: {example.text}"
+    """Embed only the read text; task comparison stays explicit elsewhere."""
+    return example.text
 
 
 class OllamaEmbeddings:
@@ -42,10 +43,12 @@ class EmbeddingResult:
     example: EmbeddingExample
     attack_similarity: float
     legitimate_similarity: float
+    margin: float
+    closest_category: str
     predicted_unfavorable: bool
 
 
-def evaluate(client: OllamaEmbeddings, split="development"):
+def evaluate(client: OllamaEmbeddings, split="development", margin=0.05):
     """Compare each example with labeled development references.
 
     Development uses leave-one-out references so no example is compared with
@@ -58,11 +61,18 @@ def evaluate(client: OllamaEmbeddings, split="development"):
     results, metrics = [], ClassificationMetrics()
     for example in targets:
         references = [item for item in DEVELOPMENT if item.id != example.id or split != "development"]
-        attacks = [vectors[item.id] for item in references if item.unfavorable]
+        attacks_by_category = {}
+        for item in references:
+            if item.unfavorable:
+                attacks_by_category.setdefault(item.category, []).append(vectors[item.id])
         legitimate = [vectors[item.id] for item in references if not item.unfavorable]
-        attack_score = _mean_similarity(vectors[example.id], attacks)
+        category_scores = {category: _mean_similarity(vectors[example.id], category_vectors)
+                           for category, category_vectors in attacks_by_category.items()}
+        closest_category, attack_score = max(category_scores.items(), key=lambda item: item[1])
         legitimate_score = _mean_similarity(vectors[example.id], legitimate)
-        predicted = attack_score > legitimate_score
+        score_margin = attack_score - legitimate_score
+        predicted = score_margin >= margin
         metrics.add(example.unfavorable, predicted)
-        results.append(EmbeddingResult(example, attack_score, legitimate_score, predicted))
+        results.append(EmbeddingResult(example, attack_score, legitimate_score,
+                                       score_margin, closest_category, predicted))
     return results, metrics
