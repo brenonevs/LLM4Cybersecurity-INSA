@@ -134,6 +134,12 @@ class Journal:
                 "  - {source_key} | author={author_id} | category={record_kind} | "
                 "result={result} | severity={severity} | weight={weight:g}".format(**item))
             self._write(f"    reasons: {', '.join(item['reasons']) or 'none'}")
+            signals = item.get("signals", [])
+            if signals:
+                self._write("    beta evidence after duplicate removal:")
+                for signal in signals:
+                    self._write("      - {kind}: weight={weight:g}; origin={origin}".format(
+                        **signal))
             semantic = item.get("semantic")
             if semantic:
                 self._write(
@@ -145,7 +151,7 @@ class Journal:
                 self._write("    contextual reasons: " +
                             (", ".join(semantic["reasons"]) or "none"))
                 self._write(f"    closest reference: {semantic['reference']}")
-                self._write("    semantic result: observation only; no trust update")
+                self._write("    semantic result: included only through the evidence list above")
             self._write(
                 "    trust state: alpha {alpha_before} -> {alpha_after}; "
                 "beta {beta_before} -> {beta_after}".format(**item))
@@ -272,10 +278,15 @@ class Journal:
                 self._write("  (no text evidence was read)")
             for observation in observations:
                 self._write(
-                    "  - {source_key} | lexical={lexical_result} | semantic={semantic_category} "
+                    "  - {source_key} | assessment={assessment_result} | semantic={semantic_category} "
                     "({semantic_score:.2f}) | candidate={semantic_candidate}".format(**observation))
-                self._write("    lexical reasons: " +
-                            (", ".join(observation["lexical_reasons"]) or "none"))
+                self._write("    assessment reasons: " +
+                            (", ".join(observation["assessment_reasons"]) or "none"))
+                signals = observation["beta_signals"]
+                if signals:
+                    self._write("    beta evidence after duplicate removal: " + "; ".join(
+                        "{kind}={weight:g} ({origin})".format(**signal)
+                        for signal in signals))
                 self._write("    concepts: " +
                             (", ".join(observation["matched_concepts"]) or "none"))
                 self._write("    contextual reasons: " +

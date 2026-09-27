@@ -5,7 +5,7 @@ were read.  Structured measurements are assessed against their declared
 format first.  A format anomaly is evidence of reduced reliability, not proof
 that the source is malicious.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 import unicodedata
 from datetime import datetime
@@ -29,6 +29,28 @@ class Evaluation:
     weight: float = 1.0
     severity: str = "none"
     semantic: Optional[SemanticAssessment] = None
+    signals: Tuple["EvidenceSignal", ...] = ()
+
+
+@dataclass(frozen=True)
+class EvidenceSignal:
+    """One auditable contribution to an unfavorable content assessment."""
+    kind: str
+    weight: float
+    origin: str
+
+
+def _combine_negative(reasons, signals, semantic=None) -> Evaluation:
+    """Keep the strongest weight for each evidence type, then cap one version."""
+    strongest = {}
+    for signal in signals:
+        previous = strongest.get(signal.kind)
+        if previous is None or signal.weight > previous.weight:
+            strongest[signal.kind] = signal
+    selected = tuple(strongest.values())
+    weight = min(MAX_NEGATIVE_WEIGHT, sum(signal.weight for signal in selected))
+    return Evaluation(UNFAVORABLE, tuple(reasons), weight,
+                      _negative_severity(weight), semantic, selected)
 
 
 def _normaliser(texte: str) -> str:
@@ -103,12 +125,30 @@ def _evaluate_text(text: str, task_context: str = "") -> Evaluation:
     if external_destination:
         reasons.append("external_destination_reference")
 
-    if override and directive and (sensitive or external_destination):
-        return Evaluation(UNFAVORABLE, tuple(reasons), 2.0, "critical", semantic)
-    if directive and (sensitive or external_destination):
-        return Evaluation(UNFAVORABLE, tuple(reasons), 1.5, "high", semantic)
+    signals = []
     if override:
-        return Evaluation(UNFAVORABLE, tuple(reasons), 1.0, "medium", semantic)
+        signals.append(EvidenceSignal("instruction_override", 1.0, "lexical"))
+    if directive:
+        signals.append(EvidenceSignal("agent_directive", 0.5, "lexical"))
+        if sensitive:
+            signals.append(EvidenceSignal("sensitive_data", 1.0, "lexical"))
+        if external_destination:
+            signals.append(EvidenceSignal("new_target", 1.0, "lexical"))
+
+    if semantic.candidate:
+        reasons.append("semantic_" + semantic.category)
+        if semantic.category == "instruction_override":
+            signals.append(EvidenceSignal("instruction_override", 0.75, "contextual"))
+        elif semantic.category == "sensitive_data_request":
+            signals.extend((EvidenceSignal("agent_directive", 0.5, "syntactic"),
+                            EvidenceSignal("sensitive_data", 0.75, "contextual")))
+        elif semantic.category in {"external_exfiltration", "unauthorized_write",
+                                   "unauthorized_restart"}:
+            signals.extend((EvidenceSignal("agent_directive", 0.5, "syntactic"),
+                            EvidenceSignal("new_target", 0.75, "contextual")))
+
+    if signals:
+        return _combine_negative(reasons, signals, semantic)
     return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none", semantic)
 
 
@@ -132,13 +172,14 @@ def _evaluate_unexpected_structured_value(text: str, format_reason: str,
                          if reason != "no_strong_signal")
     reasons = (format_reason,) + text_reasons
     if text_evaluation.result == UNFAVORABLE:
-        weight = min(MAX_NEGATIVE_WEIGHT, text_evaluation.weight + 0.5)
-        return Evaluation(UNFAVORABLE, reasons, weight, _negative_severity(weight),
-                          text_evaluation.semantic)
+        return _combine_negative(reasons, text_evaluation.signals + (
+            EvidenceSignal("structural_anomaly", 0.5, "structured"),),
+            text_evaluation.semantic)
     # The value is unreliable because it violates the declared technical
     # schema, but this result does not claim that an attacker caused it.
-    return Evaluation(UNFAVORABLE, reasons, weight=0.5, severity="low",
-                      semantic=text_evaluation.semantic)
+    return _combine_negative(reasons, (EvidenceSignal("structural_anomaly", 0.5,
+                                                       "structured"),),
+                             text_evaluation.semantic)
 
 
 def _evaluate_timestamp(text: str, task_context: str = "") -> Evaluation:

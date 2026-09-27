@@ -148,6 +148,11 @@ class Agent:
                                        "reasons": list(item.evaluation.reasons),
                                        "severity": item.evaluation.severity,
                                        "weight": item.evaluation.weight,
+                                       "signals": [{
+                                           "kind": signal.kind,
+                                           "weight": signal.weight,
+                                           "origin": signal.origin,
+                                       } for signal in item.evaluation.signals],
                                        "semantic": None if item.evaluation.semantic is None else {
                                            "protocol": item.evaluation.semantic.protocol,
                                            "category": item.evaluation.semantic.category,

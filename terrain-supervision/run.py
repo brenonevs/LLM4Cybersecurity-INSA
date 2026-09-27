@@ -289,8 +289,13 @@ def _semantic_review(observations):
         records.append({
             "source_key": item.source_key,
             "content": item.content,
-            "lexical_result": item.evaluation.result,
-            "lexical_reasons": list(item.evaluation.reasons),
+            "assessment_result": item.evaluation.result,
+            "assessment_reasons": list(item.evaluation.reasons),
+            "beta_signals": [{
+                "kind": signal.kind,
+                "weight": signal.weight,
+                "origin": signal.origin,
+            } for signal in item.evaluation.signals],
             "semantic_category": semantic.category,
             "semantic_score": semantic.score,
             "matched_concepts": list(semantic.matched_concepts),
