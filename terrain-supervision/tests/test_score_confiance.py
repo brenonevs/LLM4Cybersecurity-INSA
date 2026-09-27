@@ -216,6 +216,16 @@ def test_semantic_observation_groups_reworded_sensitive_request_without_changing
             protection.etat("sensor:POMPE-01", "journal").beta) == (1.0, 1.0)
 
 
+def test_semantic_observation_reports_when_no_known_concept_matches():
+    protection = ScoreConfiance()
+    protection.observer(Fragment("comment", evidences=[_journal_comment(
+        "The bearing was replaced during the planned intervention.")]))
+
+    semantic = protection.observations()[0].evaluation.semantic
+    assert semantic.category == "no_semantic_match"
+    assert semantic.score == 0.0
+
+
 def test_technical_title_that_mentions_restart_is_not_an_agent_directive():
     protection = ScoreConfiance()
     reference = SourceReference("fiche:DOC-003:titre", "fiche", "DOC-003", "titre",

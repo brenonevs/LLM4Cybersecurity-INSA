@@ -94,6 +94,13 @@ def _cosine(left: Tuple[str, ...], right: Tuple[str, ...]) -> float:
 def assess_text(text: str) -> SemanticAssessment:
     """Return the closest known meaning category without making a decision."""
     concepts = _concepts_in(text)
+    if not concepts:
+        return SemanticAssessment(
+            category="no_semantic_match",
+            score=0.0,
+            matched_concepts=(),
+            reference="No known reference category matched this text.",
+        )
     best_category, (reference, reference_concepts) = max(
         REFERENCES.items(), key=lambda item: _cosine(concepts, item[1][1]))
     return SemanticAssessment(
