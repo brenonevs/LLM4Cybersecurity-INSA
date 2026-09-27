@@ -18,6 +18,6 @@ def test_embedding_splits_are_valid_and_disjoint():
 def test_embedding_dataset_summary_is_stable():
     dataset = summary()
     assert dataset["development_total"] == 49
-    assert dataset["validation_total"] == 12
+    assert dataset["validation_total"] == 24
     assert dataset["development_attacks"] == 22
-    assert dataset["validation_attacks"] == 6
+    assert dataset["validation_attacks"] == 12
