@@ -119,6 +119,7 @@ class ObservationConfiance:
     author_id: str
     record_kind: str
     version: str
+    content: str
     evaluation: Evaluation
     alpha_before: float
     beta_before: float
@@ -205,6 +206,7 @@ class ScoreConfiance(Protection):
                 author_id=evidence.reference.actor,
                 record_kind=evidence.reference.kind,
                 version=version,
+                content=evidence.content,
                 evaluation=evaluation,
                 alpha_before=alpha_before,
                 beta_before=beta_before,

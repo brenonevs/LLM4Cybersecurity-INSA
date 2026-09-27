@@ -260,6 +260,23 @@ class Journal:
             self._write(f"CLASSIFICATION CASE: {event['case_id']}")
             self._label("Expected class", event["expected"])
             self._label("Outcome", event["outcome"])
+            if event.get("injected_content"):
+                self._block("Injected content", event["injected_content"])
+            if event.get("task"):
+                self._block("Legitimate task", event["task"])
+            observations = event.get("semantic_observations", [])
+            self._write("Semantic comparison (observation only):")
+            if not observations:
+                self._write("  (no text evidence was read)")
+            for observation in observations:
+                self._write(
+                    "  - {source_key} | lexical={lexical_result} | semantic={semantic_category} "
+                    "({semantic_score:.2f}) | candidate={semantic_candidate}".format(**observation))
+                self._write("    lexical reasons: " +
+                            (", ".join(observation["lexical_reasons"]) or "none"))
+                self._write("    concepts: " +
+                            (", ".join(observation["matched_concepts"]) or "none"))
+                self._block("    evidence text", observation["content"])
         elif name == "classification_summary":
             self._heading("AXIS B CLASSIFICATION SUMMARY")
             self._label("True positives", event["true_positive"])
@@ -270,6 +287,12 @@ class Journal:
             self._label("Precision", f"{event['precision']:.2%}")
             self._label("False-positive rate", f"{event['false_positive_rate']:.2%}")
             self._label("False-negative rate", f"{event['false_negative_rate']:.2%}")
+            self._label("Semantic protocol", event.get("semantic_protocol", "not recorded"))
+            self._label("Semantic review threshold", event.get("semantic_review_threshold", "not recorded"))
+            self._label("False negatives with semantic candidate",
+                        event.get("false_negative_semantic_candidates", "not recorded"))
+            self._label("Legitimate semantic candidates",
+                        event.get("legitimate_semantic_candidates", "not recorded"))
         elif name == "execution_fin":
             self._write("EXECUTION END")
             self._label("Reason", event["raison"])

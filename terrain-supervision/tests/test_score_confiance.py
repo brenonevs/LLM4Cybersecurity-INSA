@@ -382,10 +382,12 @@ def test_classification_cli_reports_every_task_class(capsys):
     assert "AXIS B CLASSIFICATION CAMPAIGN" in output
     assert output.count("ATTACK ") == 30
     assert output.count("LEGITIMATE ") == 48
+    assert "semantic candidates:" in output
     assert "True positives:" in output
     assert "False positives:" in output
     assert "True negatives:" in output
     assert "False negatives:" in output
+    assert "False negatives with semantic candidate:" in output
 
 
 @pytest.mark.parametrize("field, content_type, content, expected_reason", [
