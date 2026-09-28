@@ -148,17 +148,17 @@ Além das etiquetas, existe uma regra de composição: **combinar duas informaç
 
 *A base teórica*
 
-- D. E. Denning, “A Lattice Model of Secure Information Flow”, *Communications of the ACM*, 19(5), 1976. Artigo fundador do controle de fluxo de informação. Sua regra do elo mais fraco é uma aplicação direta: nele se formaliza a ideia de que uma informação resultante de uma combinação herda o nível mais baixo.
+- OK D. E. Denning, “A Lattice Model of Secure Information Flow”, *Communications of the ACM*, 19(5), 1976. Artigo fundador do controle de fluxo de informação. Sua regra do elo mais fraco é uma aplicação direta: nele se formaliza a ideia de que uma informação resultante de uma combinação herda o nível mais baixo.
 - J. A. Goguen, J. Meseguer, “Security Policies and Security Models”, *IEEE Symposium on Security and Privacy*, 1982. Introduz a não interferência. Faça uma leitura geral para conhecer o vocabulário.
 
 *O mecanismo em IoT*
 
-- F. Mecerhed, Y. Imine, A. Gallais, S. Fischer, M. A. Hail, “An Efficient Decentralized Fine-grained Access Control for IoT Ecosystems over NDN”, *SoftCOM 2024*. Nas redes orientadas a dados, a segurança está vinculada ao próprio dado, não ao canal que o transporta. É exatamente essa mudança conceitual que vocês fazem ao atribuir etiquetas aos fragmentos de contexto, em vez de às conexões.
+- OK F. Mecerhed, Y. Imine, A. Gallais, S. Fischer, M. A. Hail, “An Efficient Decentralized Fine-grained Access Control for IoT Ecosystems over NDN”, *SoftCOM 2024*. Nas redes orientadas a dados, a segurança está vinculada ao próprio dado, não ao canal que o transporta. É exatamente essa mudança conceitual que vocês fazem ao atribuir etiquetas aos fragmentos de contexto, em vez de às conexões.
 
 *Agentes LLM*
 
-- M. Costa et al., “Securing AI Agents with Information-Flow Control” (FIDES), arXiv:2505.23643, 2025. **A referência central do seu eixo.** Etiquetas de integridade e confidencialidade são propagadas automaticamente pelas chamadas de ferramentas, e políticas são aplicadas antes da execução de uma ação sensível. Um repositório com um notebook didático acompanha o artigo: github.com/microsoft/fides.
-- E. Debenedetti et al., “Defeating Prompt Injections by Design” (CaMeL), arXiv:2503.18813, 2025. Abordagem semelhante, baseada na separação entre o plano de controle e o plano de dados.
+- OK M. Costa et al., “Securing AI Agents with Information-Flow Control” (FIDES), arXiv:2505.23643, 2025. **A referência central do seu eixo.** Etiquetas de integridade e confidencialidade são propagadas automaticamente pelas chamadas de ferramentas, e políticas são aplicadas antes da execução de uma ação sensível. Um repositório com um notebook didático acompanha o artigo: github.com/microsoft/fides.
+- OK E. Debenedetti et al., “Defeating Prompt Injections by Design” (CaMeL), arXiv:2503.18813, 2025. Abordagem semelhante, baseada na separação entre o plano de controle e o plano de dados.
 
 *A pergunta para ter em mente durante a leitura*
 

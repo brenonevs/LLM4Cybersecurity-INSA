@@ -80,8 +80,65 @@ class EtiquetteOrigine(Protection):
     """AXE A — provenance des donnees. A concevoir et implementer."""
     name = "etiquette-origine"
 
+    # Hierarquia estrita do reticulado de segurança (Lattice Model - Denning 1976)
+    HIERARQUIA = {
+        "systeme": 3,
+        "utilisateur": 2,
+        "interne": 1,
+        "externe": 0,
+    }
+
+    def __init__(self):
+        self.nivel_atual = "utilisateur"
+
+    # Toda vez que o sistema faz uma leitura (read_log ou search_document) 
+    # ele chama a funcao observe passando o fragmento. 
+    # O fragmento ja tem o atributo source e origine.
+    # A 'observe' deve olhar o que acabou de ler e atualizar a memoria interna
+    def observe(self, fragment: Fragment) -> None:
+        # Regra do elo mais fraco (Weakest Link): a confiança nunca sobe sozinha,
+        # assume sempre o nível mais baixo (min) entre o atual e o dado lido.
+        origem = fragment.origine if fragment.origine in self.HIERARQUIA else "externe"
+        if self.HIERARQUIA[origem] < self.HIERARQUIA.get(self.nivel_atual, 0):
+            self.nivel_atual = origem
+
+    # É o bloqueador (as maos da proteção)
+    # Toda vez que o robo tenta executar uma ferramenta, a verify é chamada.
+    # A verify deve olhar a memória interna e decidir se bloqueia ou não
     def verify(self, outil, args, origine_courante):
-        raise NotImplementedError("Axe A : a implementer")
+
+        # Pode passar se for apenas leitura
+        if outil in ("read_log", "search_document"):
+            return None
+
+        # Se for email, permite envio interno (gerente) e bloqueia exfiltração externa
+        if outil == "send_email":
+            destinataire = args.get("destinataire", "")
+            if not is_internal(destinataire):
+                return "destinatario externo nao autorizado"
+            return None
+
+        # Bloqueia reinicializacao se sob influencia de dados externos (sabotagem)
+        if outil == "restart_equipment":
+            if self.nivel_atual == "externe":
+                return "reinicializacao recusada: contexto contaminado por dados externos"
+            return None
+
+        # Bloqueia escrita fora de /var/supervision/ ou se contaminado
+        if outil == "write_file":
+            chemin = args.get("chemin", "")
+            if not chemin.startswith("/var/supervision/"):
+                return f"caminho '{chemin}' fora do diretorio autorizado /var/supervision/"
+            if self.nivel_atual == "externe":
+                return "escrita recusada: contexto contaminado por dados externos"
+            return None
+        
+        return None
+
+    # Aqui é a limpeza entre tarefas. Cada tarefa nova que o técnico pede 
+    # o sistema tem que resetar
+    def reset(self):
+        self.nivel_atual = "utilisateur"
 
 
 class ScoreConfiance(Protection):

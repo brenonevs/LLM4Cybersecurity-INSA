@@ -67,6 +67,7 @@ class Journal:
         self.chemin = path.resolve()
         self.fichier = self.chemin.open("a", encoding="utf-8")
         self.evenements = []
+        self._tool_results = []
         self.campagne = uuid4().hex
         self.execution = self.derniere_execution = self.etape = self.max_etapes = None
         self.cas = self.tipo = None
@@ -93,21 +94,31 @@ class Journal:
 
     def _messages(self, messages):
         labels = {
-            "system": "SYSTEM INSTRUCTIONS",
-            "assistant": "PREVIOUS MODEL RESPONSE",
+            "system": "SYSTEM INSTRUCTIONS [origin: systeme]",
+            "assistant": "PREVIOUS MODEL RESPONSE [origin: interne]",
         }
         self._write(f"MODEL INPUT — {len(messages)} message(s)")
         for index, message in enumerate(messages, 1):
             content = str(message.get("content", ""))
             if message.get("role") == "user":
                 if content.startswith("Technician request:"):
-                    label = "ORIGINAL TECHNICIAN TASK"
-                elif content.startswith("Tool result:"):
-                    label = "TOOL RESULT PROVIDED TO MODEL"
+                    label = "ORIGINAL TECHNICIAN TASK [origin: utilisateur]"
+                elif content.startswith("Tool result:") or content.startswith("Resultat outil :"):
+                    origin_tag = ""
+                    try:
+                        prefix = "Tool result:" if "Tool result:" in content else "Resultat outil :"
+                        payload = json.loads(content.split(prefix, 1)[1].strip())
+                        tool_name = payload.get("outil")
+                        matching = [r for r in self._tool_results if r.get("tool") == tool_name]
+                        if matching:
+                            origin_tag = f" [origin: {matching[-1]['origin']}, source: {matching[-1]['source']}]"
+                    except Exception:
+                        pass
+                    label = f"TOOL RESULT PROVIDED TO MODEL{origin_tag}"
                 elif content.startswith("Checklist of explicit request requirements:"):
-                    label = "TASK CHECKLIST"
+                    label = "TASK CHECKLIST [origin: systeme]"
                 elif content.startswith("Current task state,"):
-                    label = "TASK STATE"
+                    label = "TASK STATE [origin: systeme]"
                 else:
                     label = "USER MESSAGE"
             else:
@@ -142,6 +153,14 @@ class Journal:
         return line
 
     def noter(self, evenement, **donnees):
+        if evenement in ("execution_debut", "campagne_debut"):
+            self._tool_results = []
+        elif evenement == "outil_resultat":
+            self._tool_results.append({
+                "tool": donnees.get("outil"),
+                "origin": donnees.get("origine", "?"),
+                "source": donnees.get("source", "?")
+            })
         entry = {
             "version": 3,
             "date_utc": datetime.now(timezone.utc).isoformat(),
@@ -218,6 +237,8 @@ class Journal:
             self._write("TOOL AUTHORIZATION")
             self._label("Tool", event["outil"])
             self._label("Status", "ALLOWED" if event["autorise"] else "REFUSED")
+            if event.get("origine_declencheur"):
+                self._label("Trigger origin", event["origine_declencheur"])
             if event.get("motif"):
                 self._block("Reason", event["motif"])
         elif name == "outil_resultat":
@@ -282,12 +303,14 @@ class Journal:
         args = _readable_args(action.get("args") or {})
         print(f"[journal]   decision: {tool}({args})" if args else f"[journal]   decision: {tool}()")
 
-    def annoncer_outil(self, tool, args, allowed, reason=""):
+    def annoncer_outil(self, tool, args, allowed, reason="", trigger_origin=None):
+        origin_str = f" | trigger_origin={trigger_origin}" if trigger_origin else ""
         print(f"[journal]   tool: {tool} | {'allowed' if allowed else 'REFUSED'}"
-              f"{f' | {_shorten(reason, 80)}' if reason else ''}")
+              f"{f' | {_shorten(reason, 80)}' if reason else ''}{origin_str}")
 
-    def annoncer_resultat(self, tool, text):
-        print(f"[journal]   result: {_shorten(text, 120)}")
+    def annoncer_resultat(self, tool, text, origin=None):
+        origin_str = f" [origin: {origin}]" if origin else ""
+        print(f"[journal]   result{origin_str}: {_shorten(text, 120)}")
 
     def terminer(self, reason, calls, response):
         self.noter("execution_fin", raison=reason, appels=calls, reponse=response)

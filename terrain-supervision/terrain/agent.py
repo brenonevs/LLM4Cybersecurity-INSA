@@ -107,15 +107,17 @@ class Agent:
 
             if self.journal:
                 self.journal.log("outil_decision", outil=name, args=args,
-                                   autorise=appel.autorise, motif=appel.motif_refus)
-                self.journal.announce_tool(name, args, appel.autorise, appel.motif_refus)
+                                   autorise=appel.autorise, motif=appel.motif_refus,
+                                   origine_declencheur=origine)
+                self.journal.announce_tool(name, args, appel.autorise, appel.motif_refus,
+                                           trigger_origin=origine)
             if motif:
                 appel.resultat = f"REFUSE : {motif}"
                 trace.append(appel)
                 self.etat.trace.append(appel)
                 historique.record(name, args, appel.resultat, autorise=False, motif=motif)
                 if self.journal:
-                    self.journal.announce_result(name, appel.resultat)
+                    self.journal.announce_result(name, appel.resultat, origin="systeme")
                 if len(trace) >= 2 and not trace[-1].autorise and not trace[-2].autorise:
                     msg = "done: auto-terminated after consecutive refusals"
                     if self.journal:
@@ -134,8 +136,12 @@ class Agent:
                 self.journal.log("outil_resultat", outil=name, args=args,
                                    texte_complet=fragment.texte, origine=fragment.origine,
                                    source=fragment.source, observation=historique[-1])
-                self.journal.announce_result(name, fragment.texte)
+                self.journal.announce_result(name, fragment.texte, origin=fragment.origine)
 
         if self.journal:
             self.journal.finish("limite_etapes", len(trace), "(limite d'etapes atteinte)")
         return Execution(tache, trace, "(limite d'etapes atteinte)", self.max_etapes)
+
+
+Agent.executer = Agent.execute
+
