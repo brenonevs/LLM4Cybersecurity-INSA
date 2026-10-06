@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 from typing import Dict, List, Optional, Set, Tuple
 
+from .embeddings import EmbeddingReferences
 from .evaluation import FAVORABLE, Evaluation, UNFAVORABLE, evaluate_evidence
 from .outils import Fragment, est_interne
 
@@ -40,6 +41,10 @@ class Protection:
     def observations(self) -> Tuple[object, ...]:
         """Return optional audit observations created while reading data."""
         return ()
+
+    def authorization_detail(self):
+        """Return optional structured details for the latest authorization."""
+        return None
 
 
 class SansProtection(Protection):
@@ -122,6 +127,7 @@ class ObservationConfiance:
     source_key: str
     author_id: str
     record_kind: str
+    content_type: str
     version: str
     content: str
     evaluation: Evaluation
@@ -130,6 +136,18 @@ class ObservationConfiance:
     alpha_after: float
     beta_after: float
     trust_update: str
+
+
+@dataclass(frozen=True)
+class TrustAuthorization:
+    """Auditable Axis B decision for one sensitive tool call."""
+    tool: str
+    threshold: float
+    sources: Tuple[Tuple[str, str, float], ...]
+    effective_trust: Optional[float]
+    negative_evidence_gate: bool
+    allowed: bool
+    reason: str = ""
 
 
 class ScoreConfiance(Protection):
@@ -141,13 +159,28 @@ class ScoreConfiance(Protection):
     """
     nom = "score-confiance"
 
-    def __init__(self):
+    SENSITIVE_TOOL_MINIMUM_TRUST = {
+        "send_email": 0.70,
+        "write_file": 0.70,
+        "restart_equipment": 0.60,
+    }
+
+    def __init__(self, embedding_client=None, embedding_assessor=None,
+                 authorization=False):
         self._etats: Dict[Tuple[str, str], EtatConfiance] = {}
         self._sources_tache: Dict[Tuple[str, str], Set[str]] = {}
         self._versions_vues: Dict[str, Set[str]] = {}
         self._positive_credit_used: Set[str] = set()
         self._observations: List[ObservationConfiance] = []
         self._task_context = ""
+        self._authorization_enabled = authorization
+        self._last_authorization: Optional[TrustAuthorization] = None
+        if embedding_assessor is not None:
+            self._embedding_assessor = embedding_assessor
+        elif embedding_client is not None:
+            self._embedding_assessor = EmbeddingReferences(embedding_client)
+        else:
+            self._embedding_assessor = None
 
     def definir_contexto_tarefa(self, task: str) -> None:
         self._task_context = str(task)
@@ -176,9 +209,10 @@ class ScoreConfiance(Protection):
         A source key is evidence of one concrete field.  Keeping the keys in a
         set means rereading the same field does not create a second observation
         entry.  Every new version is evaluated according to its content type.
-        A favorable field receives positive credit at most once; every new
-        unfavorable version contributes negative evidence.  Nothing blocks
-        tools in this phase.
+        One tool result gives at most one positive credit to each author and
+        record category.  The same field never receives a second positive
+        credit.  Every new unfavorable version contributes negative evidence.
+        Nothing blocks tools in this phase.
         """
         sources = fragment.sources
         if fragment.evidences:
@@ -188,6 +222,7 @@ class ScoreConfiance(Protection):
             self.etat(*key)
             self._sources_tache.setdefault(key, set()).add(source.key)
 
+        credited_in_result: Set[Tuple[str, str]] = set()
         for evidence in fragment.evidences:
             version = hashlib.sha256(evidence.content.encode("utf-8")).hexdigest()
             versions = self._versions_vues.setdefault(evidence.reference.key, set())
@@ -197,15 +232,20 @@ class ScoreConfiance(Protection):
 
             state = self.etat(evidence.reference.actor, evidence.reference.kind)
             alpha_before, beta_before = state.alpha, state.beta
-            evaluation = evaluate_evidence(evidence, self._task_context)
+            evaluation = evaluate_evidence(
+                evidence, self._task_context, self._embedding_assessor)
             trust_update = "none"
             if evaluation.result == FAVORABLE:
-                if evidence.reference.key not in self._positive_credit_used:
+                author_category = (evidence.reference.actor, evidence.reference.kind)
+                if (evidence.reference.key in self._positive_credit_used
+                        or author_category in credited_in_result):
+                    self._positive_credit_used.add(evidence.reference.key)
+                    trust_update = "positive_credit_already_used"
+                else:
                     state.alpha += evaluation.weight
                     self._positive_credit_used.add(evidence.reference.key)
+                    credited_in_result.add(author_category)
                     trust_update = f"alpha+={evaluation.weight:g}"
-                else:
-                    trust_update = "positive_credit_already_used"
             elif evaluation.result == UNFAVORABLE:
                 state.beta += evaluation.weight
                 trust_update = f"beta+={evaluation.weight:g}"
@@ -213,6 +253,7 @@ class ScoreConfiance(Protection):
                 source_key=evidence.reference.key,
                 author_id=evidence.reference.actor,
                 record_kind=evidence.reference.kind,
+                content_type=evidence.reference.content_type,
                 version=version,
                 content=evidence.content,
                 evaluation=evaluation,
@@ -249,11 +290,49 @@ class ScoreConfiance(Protection):
         self._positive_credit_used.clear()
         self._observations.clear()
         self._task_context = ""
+        self._last_authorization = None
 
     def verifier(self, outil, args, origine_courante):
-        # This first step only stores the mathematical state.  It must not
-        # change the baseline behaviour or block any tool call yet.
+        """Apply trust thresholds only after a source has negative evidence."""
+        self._last_authorization = None
+        if not self._authorization_enabled:
+            return None
+        threshold = self.SENSITIVE_TOOL_MINIMUM_TRUST.get(outil)
+        if threshold is None:
+            return None
+
+        source_states = tuple(sorted(
+            (author, kind, self.etat(author, kind))
+            for author, kind in self._sources_tache
+        ))
+        sources = tuple((author, kind, state.confiance)
+                        for author, kind, state in source_states)
+        negative_sources = tuple((author, kind, state.confiance)
+                                 for author, kind, state in source_states
+                                 if state.beta > 1.0)
+        if not negative_sources:
+            # A Beta(1, 1) prior means "unknown", not "unsafe". Axis B has
+            # no adverse evidence to justify refusing a sensitive action.
+            self._last_authorization = TrustAuthorization(
+                outil, threshold, sources, None, False, True)
+            return None
+
+        author, kind, trust = min(negative_sources, key=lambda item: item[2])
+        if trust < threshold:
+            reason = (
+                f"Effective trust {trust:.2f} is below the required {threshold:.2f}; "
+                f"limiting source is {author}/{kind}."
+            )
+            self._last_authorization = TrustAuthorization(
+                outil, threshold, sources, trust, True, False, reason)
+            return reason
+
+        self._last_authorization = TrustAuthorization(
+            outil, threshold, sources, trust, True, True)
         return None
+
+    def authorization_detail(self):
+        return self._last_authorization
 
 
 class PermisParOutil(Protection):
@@ -301,6 +380,13 @@ class Pile(Protection):
                      for protection in self.protections
                      for observation in protection.observations())
 
+    def authorization_detail(self):
+        for protection in self.protections:
+            detail = protection.authorization_detail()
+            if detail is not None:
+                return detail
+        return None
+
 
 CATALOGUE = {
     "aucune": SansProtection,
@@ -312,5 +398,14 @@ CATALOGUE = {
 }
 
 
-def construire(noms: List[str]) -> Protection:
-    return Pile([CATALOGUE[n]() for n in noms if n != "aucune"])
+def construire(noms: List[str], embedding_client=None, trust_authorization=False) -> Protection:
+    protections = []
+    for name in noms:
+        if name == "aucune":
+            continue
+        if name == "score-confiance":
+            protections.append(ScoreConfiance(
+                embedding_client, authorization=trust_authorization))
+        else:
+            protections.append(CATALOGUE[name]())
+    return Pile(protections)

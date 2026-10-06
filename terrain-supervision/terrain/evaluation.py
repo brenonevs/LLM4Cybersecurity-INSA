@@ -1,16 +1,22 @@
-"""Deterministic evidence assessment for Axis B.
+"""Evidence assessment for Axis B.
 
 Natural-language values use the same text assessment regardless of where they
 were read.  Structured measurements are assessed against their declared
 format first.  A format anomaly is evidence of reduced reliability, not proof
-that the source is malicious.
+that the source is malicious.  An optional embedding assessor may add one
+bounded support signal when independent evidence is already present.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 import re
 import unicodedata
 from datetime import datetime
 from typing import Optional, Tuple
 
+from .embeddings import (
+    EMBEDDING_SUPPORT_STRONG_WEIGHT,
+    EMBEDDING_SUPPORT_TARGET_WEIGHT,
+    EmbeddingAssessment,
+)
 from .outils import SourceEvidence
 from .semantic import SemanticAssessment, assess_text
 
@@ -30,6 +36,8 @@ class Evaluation:
     severity: str = "none"
     semantic: Optional[SemanticAssessment] = None
     signals: Tuple["EvidenceSignal", ...] = ()
+    embedding: Optional[EmbeddingAssessment] = None
+    lexical_checks: Tuple[Tuple[str, bool], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -40,7 +48,7 @@ class EvidenceSignal:
     origin: str
 
 
-def _combine_negative(reasons, signals, semantic=None) -> Evaluation:
+def _combine_negative(reasons, signals, semantic=None, embedding=None) -> Evaluation:
     """Keep the strongest weight for each evidence type, then cap one version."""
     strongest = {}
     for signal in signals:
@@ -50,7 +58,19 @@ def _combine_negative(reasons, signals, semantic=None) -> Evaluation:
     selected = tuple(strongest.values())
     weight = min(MAX_NEGATIVE_WEIGHT, sum(signal.weight for signal in selected))
     return Evaluation(UNFAVORABLE, tuple(reasons), weight,
-                      _negative_severity(weight), semantic, selected)
+                      _negative_severity(weight), semantic, selected, embedding)
+
+
+def _support_weight(signals, assessment) -> float:
+    """Let embedding reinforce an independent finding without acting alone."""
+    if assessment is None or not assessment.qualified:
+        return 0.0
+    kinds = {signal.kind for signal in signals}
+    if "instruction_override" in kinds or "sensitive_data" in kinds:
+        return EMBEDDING_SUPPORT_STRONG_WEIGHT
+    if "agent_directive" in kinds and "new_target" in kinds:
+        return EMBEDDING_SUPPORT_TARGET_WEIGHT
+    return 0.0
 
 
 def _normaliser(texte: str) -> str:
@@ -106,15 +126,22 @@ MEASURE_PATTERN = re.compile(
 )
 
 
-def _evaluate_text(text: str, task_context: str = "") -> Evaluation:
+def _evaluate_text(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
     """Evaluate natural language without treating ordinary prose as positive."""
-    semantic = assess_text(text, task_context)
-    text = _normaliser(text)
+    original = text
+    semantic = assess_text(original, task_context)
+    text = _normaliser(original)
     reasons = []
     override = _contient(text, OVERRIDE_PATTERNS)
     directive = _contient(text, DIRECTIVE_PATTERNS)
     sensitive = _contient(text, SENSITIVE_PATTERNS)
     external_destination = _contient(text, EXTERNAL_DESTINATION_PATTERNS)
+    lexical_checks = (
+        ("instruction_override", override),
+        ("action_directive", directive),
+        ("secret_reference", sensitive),
+        ("external_destination_reference", external_destination),
+    )
 
     if override:
         reasons.append("instruction_override")
@@ -147,12 +174,23 @@ def _evaluate_text(text: str, task_context: str = "") -> Evaluation:
             signals.extend((EvidenceSignal("agent_directive", 0.5, "syntactic"),
                             EvidenceSignal("new_target", 0.75, "contextual")))
 
+    assessment = None
+    if embedding_assessor is not None:
+        assessment = embedding_assessor.assess(original)
+        support = _support_weight(signals, assessment)
+        assessment = replace(assessment, support_weight=support)
+        if support > 0:
+            reasons.append("embedding_support")
+            signals.append(EvidenceSignal("embedding_support", support, "embedding"))
+
     if signals:
-        return _combine_negative(reasons, signals, semantic)
-    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none", semantic)
+        return replace(_combine_negative(reasons, signals, semantic, assessment),
+                       lexical_checks=lexical_checks)
+    return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none",
+                      semantic, (), assessment, lexical_checks)
 
 
-def _evaluate_measure(text: str, task_context: str = "") -> Evaluation:
+def _evaluate_measure(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
     """Assess an expected ``temp=<number>;hum=<number>`` measurement."""
     match = MEASURE_PATTERN.fullmatch(text)
     if match:
@@ -161,51 +199,57 @@ def _evaluate_measure(text: str, task_context: str = "") -> Evaluation:
             return Evaluation(FAVORABLE, ("expected_measure_format",), 1.0, "positive")
         return Evaluation(UNFAVORABLE, ("measurement_out_of_range",), 0.5, "low")
 
-    return _evaluate_unexpected_structured_value(text, "unexpected_measure_format", task_context)
+    return _evaluate_unexpected_structured_value(
+        text, "unexpected_measure_format", task_context, embedding_assessor)
 
 
 def _evaluate_unexpected_structured_value(text: str, format_reason: str,
-                                          task_context: str = "") -> Evaluation:
+                                          task_context: str = "",
+                                          embedding_assessor=None) -> Evaluation:
     """Combine a format anomaly with the common natural-language analysis."""
-    text_evaluation = _evaluate_text(text, task_context)
+    text_evaluation = _evaluate_text(text, task_context, embedding_assessor)
     text_reasons = tuple(reason for reason in text_evaluation.reasons
                          if reason != "no_strong_signal")
     reasons = (format_reason,) + text_reasons
     if text_evaluation.result == UNFAVORABLE:
         return _combine_negative(reasons, text_evaluation.signals + (
             EvidenceSignal("structural_anomaly", 0.5, "structured"),),
-            text_evaluation.semantic)
+            text_evaluation.semantic, text_evaluation.embedding)
     # The value is unreliable because it violates the declared technical
     # schema, but this result does not claim that an attacker caused it.
     return _combine_negative(reasons, (EvidenceSignal("structural_anomaly", 0.5,
                                                        "structured"),),
-                             text_evaluation.semantic)
+                             text_evaluation.semantic, text_evaluation.embedding)
 
 
-def _evaluate_timestamp(text: str, task_context: str = "") -> Evaluation:
+def _evaluate_timestamp(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
     try:
         datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
     except ValueError:
-        return _evaluate_unexpected_structured_value(text, "unexpected_timestamp_format", task_context)
+        return _evaluate_unexpected_structured_value(
+            text, "unexpected_timestamp_format", task_context, embedding_assessor)
     return Evaluation(FAVORABLE, ("expected_timestamp_format",), 1.0, "positive")
 
 
-def _evaluate_status(text: str, task_context: str = "") -> Evaluation:
+def _evaluate_status(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
     if _normaliser(text) in {"ouvert", "clos"}:
         return Evaluation(FAVORABLE, ("expected_status_value",), 1.0, "positive")
-    return _evaluate_unexpected_structured_value(text, "unexpected_status_value", task_context)
+    return _evaluate_unexpected_structured_value(
+        text, "unexpected_status_value", task_context, embedding_assessor)
 
 
 EMAIL_ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
-def _evaluate_email_address(text: str, task_context: str = "") -> Evaluation:
+def _evaluate_email_address(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
     if EMAIL_ADDRESS_PATTERN.fullmatch(text.strip()):
         return Evaluation(FAVORABLE, ("expected_email_address_format",), 1.0, "positive")
-    return _evaluate_unexpected_structured_value(text, "unexpected_email_address_format", task_context)
+    return _evaluate_unexpected_structured_value(
+        text, "unexpected_email_address_format", task_context, embedding_assessor)
 
 
-def evaluate_evidence(evidence: SourceEvidence, task_context: str = "") -> Evaluation:
+def evaluate_evidence(evidence: SourceEvidence, task_context: str = "",
+                      embedding_assessor=None) -> Evaluation:
     """Evaluate content according to its declared content type, not origin.
 
     The content type belongs to the field metadata, not to the record origin.
@@ -214,11 +258,11 @@ def evaluate_evidence(evidence: SourceEvidence, task_context: str = "") -> Evalu
     """
     content_type = evidence.reference.content_type
     if content_type == "measure":
-        return _evaluate_measure(evidence.content, task_context)
+        return _evaluate_measure(evidence.content, task_context, embedding_assessor)
     if content_type == "timestamp":
-        return _evaluate_timestamp(evidence.content, task_context)
+        return _evaluate_timestamp(evidence.content, task_context, embedding_assessor)
     if content_type == "status":
-        return _evaluate_status(evidence.content, task_context)
+        return _evaluate_status(evidence.content, task_context, embedding_assessor)
     if content_type == "email_address":
-        return _evaluate_email_address(evidence.content, task_context)
-    return _evaluate_text(evidence.content, task_context)
+        return _evaluate_email_address(evidence.content, task_context, embedding_assessor)
+    return _evaluate_text(evidence.content, task_context, embedding_assessor)

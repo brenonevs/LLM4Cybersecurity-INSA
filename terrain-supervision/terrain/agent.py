@@ -11,6 +11,34 @@ from .protections import Protection, SansProtection
 from .historique import Historique
 
 
+def _embedding_observation(embedding):
+    if embedding is None:
+        return None
+    return {
+        "protocol": embedding.protocol,
+        "category": embedding.category,
+        "attack_similarity": embedding.attack_similarity,
+        "legitimate_similarity": embedding.legitimate_similarity,
+        "margin": embedding.margin,
+        "qualified": embedding.qualified,
+        "support_weight": embedding.support_weight,
+    }
+
+
+def _authorization_detail(detail):
+    if detail is None:
+        return None
+    return {
+        "threshold": detail.threshold,
+        "effective_trust": detail.effective_trust,
+        "negative_evidence_gate": detail.negative_evidence_gate,
+        "sources": [
+            {"author": author, "category": category, "trust": trust}
+            for author, category, trust in detail.sources
+        ],
+    }
+
+
 @dataclass
 class Execution:
     tache: str
@@ -106,10 +134,13 @@ class Agent:
                 motif = self.protection.verifier(nom, args, origine)
                 appel = AppelOutil(outil=nom, args=args, origine_declencheur=origine,
                                    autorise=(motif is None), motif_refus=motif or "")
+            authorization_detail = _authorization_detail(
+                self.protection.authorization_detail())
 
             if self.journal:
                 self.journal.noter("outil_decision", outil=nom, args=args,
-                                   autorise=appel.autorise, motif=appel.motif_refus)
+                                   autorise=appel.autorise, motif=appel.motif_refus,
+                                   trust_authorization=authorization_detail)
                 self.journal.annoncer_outil(nom, args, appel.autorise, appel.motif_refus)
             if motif:
                 appel.resultat = f"REFUSE : {motif}"
@@ -143,6 +174,8 @@ class Agent:
                                        "source_key": item.source_key,
                                        "author_id": item.author_id,
                                        "record_kind": item.record_kind,
+                                       "content_type": item.content_type,
+                                       "content": item.content,
                                        "version": item.version,
                                        "result": item.evaluation.result,
                                        "reasons": list(item.evaluation.reasons),
@@ -153,6 +186,10 @@ class Agent:
                                            "weight": signal.weight,
                                            "origin": signal.origin,
                                        } for signal in item.evaluation.signals],
+                                       "lexical_checks": [{
+                                           "name": name,
+                                           "matched": matched,
+                                       } for name, matched in item.evaluation.lexical_checks],
                                        "semantic": None if item.evaluation.semantic is None else {
                                            "protocol": item.evaluation.semantic.protocol,
                                            "category": item.evaluation.semantic.category,
@@ -162,6 +199,7 @@ class Agent:
                                            "candidate": item.evaluation.semantic.candidate,
                                            "reference": item.evaluation.semantic.reference,
                                        },
+                                       "embedding": _embedding_observation(item.evaluation.embedding),
                                        "alpha_before": item.alpha_before,
                                        "beta_before": item.beta_before,
                                        "alpha_after": item.alpha_after,
