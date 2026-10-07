@@ -32,10 +32,34 @@ def _authorization_detail(detail):
         "threshold": detail.threshold,
         "effective_trust": detail.effective_trust,
         "negative_evidence_gate": detail.negative_evidence_gate,
+        "recent_risk_enabled": detail.recent_risk_enabled,
+        "recent_risk_gate": detail.recent_risk_gate,
         "sources": [
             {"author": author, "category": category, "trust": trust}
             for author, category, trust in detail.sources
         ],
+        "recent_risk_sources": [
+            {"author": author, "category": category,
+             "risk": risk, "trust": trust}
+            for author, category, risk, trust in detail.recent_risk_sources
+        ],
+        "combined_risk_gate": detail.combined_risk_gate,
+        "combined_risks": [_combined_risk_observation(risk)
+                           for risk in detail.combined_risks],
+    }
+
+
+def _combined_risk_observation(risk):
+    return {
+        "category": risk.category,
+        "scope": risk.scope,
+        "source_keys": list(risk.source_keys),
+        "source_categories": [
+            {"author": author, "category": category}
+            for author, category in risk.source_categories
+        ],
+        "components": list(risk.components),
+        "activated": risk.activated,
     }
 
 
@@ -157,9 +181,11 @@ class Agent:
                 continue
 
             observations_before = len(self.protection.observations())
+            combined_risks_before = len(self.protection.combined_risks())
             fragment: Fragment = self.outils.appeler(nom, args)
             self.protection.observer(fragment)
             new_observations = self.protection.observations()[observations_before:]
+            new_combined_risks = self.protection.combined_risks()[combined_risks_before:]
 
             appel.resultat = fragment.texte[:2000]
             trace.append(appel)
@@ -205,7 +231,13 @@ class Agent:
                                        "alpha_after": item.alpha_after,
                                        "beta_after": item.beta_after,
                                        "trust_update": item.trust_update,
+                                       "recent_risk_before": item.recent_risk_before,
+                                       "recent_risk_after": item.recent_risk_after,
+                                       "recent_risk_update": item.recent_risk_update,
                                    } for item in new_observations],
+                                   axis_b_combined_risks=[
+                                       _combined_risk_observation(risk)
+                                       for risk in new_combined_risks],
                                    observation=historique[-1])
                 self.journal.annoncer_resultat(nom, fragment.texte)
 

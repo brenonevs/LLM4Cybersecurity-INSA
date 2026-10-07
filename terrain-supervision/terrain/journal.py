@@ -296,8 +296,29 @@ class Journal:
             self._write(
                 "    Beta: {beta_before} -> {beta_after}".format(**item))
             self._write(f"    Applied update: {item['trust_update']}")
+            if item.get("recent_risk_update") not in {None, "disabled"}:
+                self._write(
+                    "    Recent risk: {recent_risk_before:.2f} -> "
+                    "{recent_risk_after:.2f} ({recent_risk_update})".format(**item))
             if item.get("version"):
                 self._write(f"    Content version (SHA-256): {item['version']}")
+
+    def _combined_risks(self, risks):
+        if not risks:
+            return
+        self._section("Cross-field risk correlation")
+        self._write("AXIS B COMBINED RISK")
+        for risk in risks:
+            self._subsection(risk.get("category", "combined risk"))
+            self._label("  Scope", risk.get("scope", "?"))
+            self._label("  Activated", risk.get("activated", False))
+            self._label("  Components", ", ".join(risk.get("components", [])) or "none")
+            self._write("  Fields involved:")
+            for key in risk.get("source_keys", []):
+                self._write(f"    - {key}")
+            self._write("  Source categories:")
+            for source in risk.get("source_categories", []):
+                self._write("    - {author}/{category}".format(**source))
 
     def preparar_progresso(self, phase, index, total, campaign_index=None, campaign_total=None):
         self.progresso_fase = phase
@@ -344,6 +365,10 @@ class Journal:
                 "limite_resultat_modele": "Per-result model limit",
                 "budget_resultats_modele": "Model result budget",
                 "systeme_version": "System prompt version",
+                "trust_authorization": "Trust authorization",
+                "trust_decay_factor": "Trust decay factor",
+                "trust_recent_risk": "Recent-risk memory",
+                "trust_recent_risk_recovery": "Recent-risk recovery",
             }
             for key, label in labels.items():
                 if key in event:
@@ -400,12 +425,27 @@ class Journal:
                 self._label("Required trust", f"{trust['threshold']:.2f}")
                 self._label("Negative-evidence gate",
                             "ACTIVE" if trust["negative_evidence_gate"] else "NOT TRIGGERED")
+                if trust.get("recent_risk_enabled"):
+                    self._label("Recent-risk memory",
+                                "ACTIVE" if trust.get("recent_risk_gate") else "CLEAR")
                 effective = trust["effective_trust"]
                 self._label("Effective trust",
                             "not applied" if effective is None else f"{effective:.2f}")
                 self._write("Sources considered:")
                 for source in trust["sources"]:
                     self._write("  - {author}/{category}: {trust:.2f}".format(**source))
+                if trust.get("recent_risk_sources"):
+                    self._write("Recent-risk sources:")
+                    for source in trust["recent_risk_sources"]:
+                        self._write("  - {author}/{category}: risk={risk:.2f}, "
+                                    "recent trust={trust:.2f}".format(**source))
+                if trust.get("combined_risk_gate"):
+                    self._label("Combined task risk", "ACTIVE")
+                if trust.get("combined_risks"):
+                    self._write("Combined correlations considered:")
+                    for risk in trust["combined_risks"]:
+                        self._write("  - {category}: scope={scope}; active={activated}".format(
+                            **risk))
             if event.get("motif"):
                 self._block("Reason", event["motif"])
         elif name == "outil_resultat":
@@ -417,6 +457,7 @@ class Journal:
             self._block("Full result", event.get("texte_complet", ""))
             self._sources(event.get("sources", []))
             self._axis_b_observations(event.get("axis_b_observations", []))
+            self._combined_risks(event.get("axis_b_combined_risks", []))
         elif name == "axis_b_episode_step":
             self._write("AXIS B CONTINUOUS EPISODE STEP")
             self._label("Step", event["label"])
@@ -480,6 +521,56 @@ class Journal:
                         event.get("false_negative_semantic_candidates", "not recorded"))
             self._label("Legitimate semantic candidates",
                         event.get("legitimate_semantic_candidates", "not recorded"))
+        elif name == "trust_lifecycle_summary":
+            self._heading("AXIS B TRUST-LIFECYCLE SUMMARY")
+            self._label("Initial legitimate warm-up", event["warmup_count"])
+            self._label("Recovery observations measured", event["recovery_observations"])
+            self._label("Decay factor", event["decay_factor"])
+            self._label("Recent-risk recovery", event["recent_risk_recovery"])
+            self._label("Embedding support", event["embedding_support"])
+            classification = event["classification"]
+            self._subsection("Detection metrics")
+            self._write("  TP={true_positive}; FP={false_positive}; TN={true_negative}; "
+                        "FN={false_negative}; precision={precision:.2%}; recall={recall:.2%}".format(
+                            **classification))
+            execution = event["execution"]
+            self._subsection("Official execution metrics")
+            self._write("  Attacks prevented: {attacks_prevented}/{attacks_total}".format(**execution))
+            self._write("  Legitimate tasks completed: {legitimate_completed}/"
+                        "{legitimate_total}".format(**execution))
+            self._subsection("Patient-attacker lifecycle metrics")
+            for record in event["lifecycle"]:
+                self._write(
+                    "  - {payload}: severity={severity}; detected={detected}; "
+                    "risk_activated={risk_activated}; initially_blocked={initially_blocked}; "
+                    "risk_clear_after={risk_clear_after}; tools_release_after="
+                    "{tools_release_after}".format(**record))
+            self._subsection("Split-attack correlation metrics")
+            for record in event.get("cross_field", []):
+                self._write(
+                    "  - {case}: blocked_in_task={blocked_in_task}; "
+                    "combined_risk_cleared_after_task={combined_risk_cleared_after_task}; "
+                    "source_risk_blocks_next_task={source_risk_blocks_next_task}; "
+                    "beta={beta_by_source}; "
+                    "recent_risk={recent_risk_by_source}".format(**record))
+        elif name == "recidivism_summary":
+            self._heading("AXIS B RECIDIVISM EXPERIMENT")
+            self._label("Initial legitimate warm-up", event["warmup_count"])
+            self._label("Recent-risk recovery", event["recent_risk_recovery"])
+            self._write("Risk escalation: first incident=1.0; later incidents=+0.5; cap=3.0")
+            for scenario in event["scenarios"]:
+                self._subsection(
+                    f"{scenario['scenario']} / {scenario['payload']} — "
+                    f"attacks={scenario['occurrences']}; "
+                    f"recovery between={scenario['recovery_between']}")
+                self._write("  attack | severity | alpha | beta | trust | "
+                            "risk before -> after | email")
+                for row in scenario["rows"]:
+                    self._write(
+                        "  {occurrence:6d} | {severity:8s} | {alpha:5.1f} | "
+                        "{beta:4.1f} | {trust:.3f} | {risk_before:.2f} -> "
+                        "{risk_after:.2f} ({risk_update}) | {email}".format(
+                            **row, email="ALLOW" if row["email_allowed"] else "BLOCK"))
         elif name == "execution_fin":
             self._section("Execution result")
             self._write("EXECUTION END")

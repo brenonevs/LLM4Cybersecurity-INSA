@@ -6,7 +6,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from terrain.embedding_dataset import DEVELOPMENT
-from terrain.embeddings import EmbeddingAssessment, EmbeddingReferences
+from terrain.embeddings import (
+    EmbeddingAssessment, EmbeddingReferences, _cosine_similarity, _normalise,
+)
 from terrain.journal import Journal
 from terrain.outils import Fragment, SourceEvidence, SourceReference
 from terrain.protections import ScoreConfiance
@@ -171,7 +173,14 @@ def test_live_margin_uses_development_references_and_the_frozen_threshold():
     assert attack.qualified is True
     assert plain.margin == 0.0
     assert plain.qualified is False
+    assert "embedding-support-v2-cosine" in attack.protocol
     assert "margin=0.075" in attack.protocol
+
+
+def test_embedding_similarity_is_cosine_and_is_not_changed_by_vector_magnitude():
+    assert _cosine_similarity(_normalise((3.0, 4.0)), _normalise((30.0, 40.0))) == 1.0
+    assert _cosine_similarity(_normalise((3.0, 4.0)), _normalise((-4.0, 3.0))) == 0.0
+    assert _cosine_similarity(_normalise((0.0, 0.0)), _normalise((3.0, 4.0))) == 0.0
 
 
 def test_journal_records_embedding_when_it_does_not_change_beta(tmp_path):

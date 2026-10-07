@@ -24,6 +24,29 @@ def test_new_author_category_starts_with_beta_prior_and_neutral_trust():
     assert protection.confiance("prestataire-externe", "ticket") == 0.5
 
 
+def test_decay_fades_evidence_but_preserves_the_beta_prior():
+    protection = ScoreConfiance(decay_factor=0.5)
+
+    protection.observer(Fragment("first", evidences=[_valid_measure("decay-1")]))
+    protection.observer(Fragment("second", evidences=[_valid_measure(
+        "decay-2", "temp=21.0;hum=53.3")]))
+
+    state = protection.etat("sensor:POMPE-01", "journal")
+    assert (state.alpha, state.beta) == (2.5, 1.0)
+
+
+@pytest.mark.parametrize("factor", [0, -0.1, 1.1, float("inf"), True])
+def test_invalid_decay_factor_is_rejected(factor):
+    with pytest.raises(ValueError, match="decay_factor"):
+        ScoreConfiance(decay_factor=factor)
+
+
+@pytest.mark.parametrize("recovery", [0, -0.1, 1.1, float("inf"), True])
+def test_invalid_recent_risk_recovery_is_rejected(recovery):
+    with pytest.raises(ValueError, match="recent_risk_recovery"):
+        ScoreConfiance(recent_risk_recovery=recovery)
+
+
 def test_each_author_and_record_category_has_an_independent_state():
     protection = ScoreConfiance()
 

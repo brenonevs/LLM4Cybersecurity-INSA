@@ -2,8 +2,13 @@
 
 A qualified match records the margin and may add one support signal when
 independent evidence is already present. It does not authorize tools.
+
+All vectors are L2-normalized locally before comparison.  This makes scores
+explicit cosine similarities instead of relying on an Ollama model returning
+vectors with a particular magnitude.
 """
 import json
+import math
 from dataclasses import dataclass
 from urllib import request
 
@@ -16,7 +21,7 @@ from .embedding_dataset import (
 EMBEDDING_SUPPORT_MARGIN = 0.075
 EMBEDDING_SUPPORT_TARGET_WEIGHT = 0.25
 EMBEDDING_SUPPORT_STRONG_WEIGHT = 0.5
-EMBEDDING_SUPPORT_PROTOCOL = "embedding-support-v1"
+EMBEDDING_SUPPORT_PROTOCOL = "embedding-support-v2-cosine"
 
 
 def _input(example: EmbeddingExample) -> str:
@@ -42,12 +47,34 @@ class OllamaEmbeddings:
         return vectors
 
 
-def _dot(left, right):
+def _normalise(vector):
+    """Return an L2-normalized immutable vector; preserve a zero vector.
+
+    A zero vector has no direction, so it is retained as zero and produces a
+    similarity of 0.0 with every vector.  Rejecting it would make a malformed
+    reference crash the whole evaluation rather than remain auditable.
+    """
+    values = tuple(float(value) for value in vector)
+    if not values:
+        raise ValueError("embedding vector must not be empty")
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("embedding vector must contain only finite values")
+    length = math.sqrt(sum(value * value for value in values))
+    if length == 0.0:
+        return values
+    return tuple(value / length for value in values)
+
+
+def _cosine_similarity(left, right):
+    """Compare normalized vectors by cosine similarity."""
+    if len(left) != len(right):
+        raise ValueError("embedding vectors must have the same dimension")
     return sum(a * b for a, b in zip(left, right))
 
 
 def _mean_similarity(vector, references):
-    return sum(_dot(vector, reference) for reference in references) / len(references)
+    return (sum(_cosine_similarity(vector, reference) for reference in references)
+            / len(references))
 
 
 def _closest_margin(vector, attacks_by_category, legitimate):
@@ -92,6 +119,7 @@ class EmbeddingReferences:
         attacks_by_category = {}
         legitimate = []
         for example, vector in zip(examples, vectors):
+            vector = _normalise(vector)
             if example.unfavorable:
                 attacks_by_category.setdefault(example.category, []).append(vector)
             else:
@@ -108,7 +136,7 @@ class EmbeddingReferences:
             vectors = self.client.embed([text])
             if len(vectors) != 1:
                 raise ValueError("Ollama returned an unexpected number of embedding vectors")
-            self._cache[text] = vectors[0]
+            self._cache[text] = _normalise(vectors[0])
         category, attack_score, legitimate_score, score_margin = _closest_margin(
             self._cache[text], self._attacks_by_category, self._legitimate)
         return EmbeddingAssessment(
@@ -134,8 +162,11 @@ def evaluate(client: OllamaEmbeddings, split="development", margin=EMBEDDING_SUP
     """
     targets = DEVELOPMENT if split == "development" else VALIDATION
     all_examples = DEVELOPMENT if split == "development" else DEVELOPMENT + VALIDATION
-    vectors = dict(zip((example.id for example in all_examples),
-                       client.embed(_input(example) for example in all_examples)))
+    vectors = dict(zip(
+        (example.id for example in all_examples),
+        (_normalise(vector) for vector in
+         client.embed(_input(example) for example in all_examples)),
+    ))
     results, metrics = [], ClassificationMetrics()
     for example in targets:
         references = [item for item in DEVELOPMENT if item.id != example.id or split != "development"]
