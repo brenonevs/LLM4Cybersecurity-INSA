@@ -1,6 +1,6 @@
 # Axe C — permissions par outil
 
-**Étape 1 : politique et validateur de configuration.** Le moteur d’autorisation
+**Étapes 1–2 terminées : contrat validé et fondements étudiés.** Le moteur d’autorisation
 et l’attaquant restent à développer. Charger une politique n’active aucune défense.
 Référence : énoncé du professeur, section Axe C (conservé dans la documentation locale).
 
@@ -45,6 +45,20 @@ identité déclarée dans une charge. Un attribut requis absent entraînera un r
 Empiler les protections ne partage pas automatiquement les attributs A/B/C.
 La relecture des fichiers écrits n’existe pas dans cette base : les expériences
 de composition porteront sur les séquences effectivement disponibles.
+
+## Décisions issues des lectures
+
+[FIDES](https://arxiv.org/abs/2505.23643v2) motive le contrôle déterministe
+avant exécution ; [ChainCaps](https://arxiv.org/abs/2605.26542v4) distingue
+les permissions locales de la sûreté des flux composés. Ces garanties ne sont
+pas celles de notre validateur actuel.
+
+Le prochain moteur séparera décision pure et adaptateur d’exécution. Origine et
+confiance viendront de fournisseurs de confiance, jamais du texte injecté.
+Sans fournisseur configuré, les attributs requis restent inconnus et les actions
+concernées sont refusées. Le rôle constant `utilisateur` ne prouve pas l’origine
+causale. Le fournisseur opérationnel devra être défini avant toute campagne.
+Les seuils restent des choix initiaux ; aucune efficacité n’est encore mesurée.
 
 ## Plan complet
 
