@@ -1,7 +1,8 @@
 # Axe C — permissions par outil
 
-**Étapes 1–2 terminées : contrat validé et fondements étudiés.** Le moteur d’autorisation
-et l’attaquant restent à développer. Charger une politique n’active aucune défense.
+**Étapes 1–3 terminées : contrat, fondements et moteur d’autorisation.**
+`PermisParOutil` applique les décisions avant exécution. L’attaquant reste à développer.
+Charger uniquement une politique n’active aucune défense.
 Référence : énoncé du professeur, section Axe C (conservé dans la documentation locale).
 
 ## Spécification
@@ -31,17 +32,17 @@ cinq outils. JSON permet une validation avec la bibliothèque standard Python.
 - La configuration chargée est immuable. Son SHA-256 identifie le contenu JSON
   canonique, indépendamment des espaces et de l’ordre des clés. Ce n’est pas une signature.
 
-## Intégration prévue et limites
+## Intégration et limites
 
-`PermisParOutil.verify()` devra retourner `None` ou un motif de refus explicite.
-Le contrôle des destinataires et chemins demandés sera effectué par ce futur
-moteur ; le validateur actuel contrôle seulement la configuration des règles.
-L’autorisation vérifiera les domaines par frontière de label et les chemins par
+`PermisParOutil.verify()` retourne `None` ou un code de refus explicite.
+Le moteur contrôle les arguments, seuils, destinataires et chemins demandés ;
+le validateur de configuration conserve son rôle distinct.
+L’autorisation vérifie les domaines par frontière de label et les chemins par
 composants normalisés. Le ticket ouvert reste un critère du juge partagé.
 
 La base transmet une origine initiale constante et ne fournit aucun score de
-confiance. Un adaptateur explicite devra définir ces attributs, sans accepter une
-identité déclarée dans une charge. Un attribut requis absent entraînera un refus.
+confiance. Un fournisseur explicite doit définir ces attributs, sans accepter une
+identité déclarée dans une charge. Un attribut requis absent entraîne un refus.
 Empiler les protections ne partage pas automatiquement les attributs A/B/C.
 La relecture des fichiers écrits n’existe pas dans cette base : les expériences
 de composition porteront sur les séquences effectivement disponibles.
@@ -53,8 +54,8 @@ avant exécution ; [ChainCaps](https://arxiv.org/abs/2605.26542v4) distingue
 les permissions locales de la sûreté des flux composés. Ces garanties ne sont
 pas celles de notre validateur actuel.
 
-Le prochain moteur séparera décision pure et adaptateur d’exécution. Origine et
-confiance viendront de fournisseurs de confiance, jamais du texte injecté.
+Le moteur sépare décision pure et adaptateur d’exécution. Origine et
+confiance viennent de fournisseurs de confiance, jamais du texte injecté.
 Sans fournisseur configuré, les attributs requis restent inconnus et les actions
 concernées sont refusées. Le rôle constant `utilisateur` ne prouve pas l’origine
 causale. Le fournisseur opérationnel devra être défini avant toute campagne.
@@ -96,3 +97,20 @@ avec version, SHA-256, outils et `configuration_validated_not_enforced`.
 Seuls les README sont versionnés comme documentation Markdown. Les critères
 détaillés, références et journaux de développement restent dans `.context/`,
 un dossier local ignoré par Git.
+
+## Utilisation du moteur
+
+`PermisParOutil(politique=None, provider=None)` charge par défaut la politique
+versionnée. Un fournisseur dédié à une session expose `mode`, `reset()`,
+`observe(fragment)` et `attributes(tool, args)`, qui retourne `Attributes`.
+Sans fournisseur, seules les lectures de base sont permises. Le rôle du
+paramètre `origine_courante` n’est pas utilisé comme attribution causale.
+
+Une erreur du fournisseur bloque les appels jusqu’à un reset réussi. `audit`
+expose des décisions immuables avec génération de tâche, mode du fournisseur,
+version et hash de politique. Il est vidé au début de chaque tâche ; l’appelant
+doit le conserver après chaque exécution pour une campagne. Aucun texte de
+charge n’y est copié. Les adresses acceptées sont des boîtes ASCII simples ;
+les chemins sont POSIX normalisés, sans garantie sur les liens symboliques réels.
+
+Tests du moteur : `../venv/bin/python -B -m pytest tests/test_axis_c_authorization.py -q`.

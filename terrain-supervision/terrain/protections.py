@@ -93,14 +93,28 @@ class ScoreConfiance(Protection):
 
 
 class PermisParOutil(Protection):
-    """AXE C — privileges par outil. A concevoir et implementer."""
+    """Axis C: deterministic per-tool policy with trusted attribute providers."""
     name = "permis-par-outil"
 
-    def __init__(self, politique: dict = None):
-        self.politique = politique or {}
+    def __init__(self, politique: dict = None, provider=None):
+        from axis_c.authorization import AuthorizationSession
+        from axis_c.policy import load_policy, parse_policy
+        self.politique = load_policy() if politique is None else parse_policy(politique)
+        self.session = AuthorizationSession(self.politique, provider)
+
+    def reset(self):
+        self.session.reset()
+
+    def observe(self, fragment):
+        self.session.observe(fragment)
 
     def verify(self, outil, args, origine_courante):
-        raise NotImplementedError("Axe C : a implementer")
+        # The caller role is not evidence of causal origin.
+        return self.session.verify(outil, args)
+
+    @property
+    def audit(self):
+        return self.session.audit
 
 
 class Pile(Protection):
