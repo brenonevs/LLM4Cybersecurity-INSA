@@ -1,0 +1,29 @@
+{
+  "version": "axis-c-policy-v0.1",
+  "default_effect": "deny",
+  "tools": {
+    "read_log": {
+      "minimum_origin": "externe",
+      "minimum_confidence": null
+    },
+    "search_document": {
+      "minimum_origin": "externe",
+      "minimum_confidence": null
+    },
+    "send_email": {
+      "minimum_origin": "utilisateur",
+      "minimum_confidence": 0.7,
+      "allowed_domains": ["entreprise.fr"],
+      "allow_subdomains": true
+    },
+    "restart_equipment": {
+      "minimum_origin": "interne",
+      "minimum_confidence": 0.5
+    },
+    "write_file": {
+      "minimum_origin": "interne",
+      "minimum_confidence": 0.5,
+      "allowed_directory": "/var/supervision/"
+    }
+  }
+}

@@ -11,3 +11,6 @@ logs/
 docs/  
 .venv
 venv
+
+# Contexto e histórico locais do projeto
+/.context/
