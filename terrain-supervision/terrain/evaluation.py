@@ -19,6 +19,7 @@ from .embeddings import (
 )
 from .outils import SourceEvidence
 from .semantic import SemanticAssessment, assess_text
+from .syntax import SyntacticAssessment, assess_text as assess_syntax
 
 
 FAVORABLE = "favorable"
@@ -35,6 +36,7 @@ class Evaluation:
     weight: float = 1.0
     severity: str = "none"
     semantic: Optional[SemanticAssessment] = None
+    syntactic: Optional[SyntacticAssessment] = None
     signals: Tuple["EvidenceSignal", ...] = ()
     embedding: Optional[EmbeddingAssessment] = None
     lexical_checks: Tuple[Tuple[str, bool], ...] = ()
@@ -48,7 +50,7 @@ class EvidenceSignal:
     origin: str
 
 
-def _combine_negative(reasons, signals, semantic=None, embedding=None) -> Evaluation:
+def _combine_negative(reasons, signals, semantic=None, syntactic=None, embedding=None) -> Evaluation:
     """Keep the strongest weight for each evidence type, then cap one version."""
     strongest = {}
     for signal in signals:
@@ -58,7 +60,7 @@ def _combine_negative(reasons, signals, semantic=None, embedding=None) -> Evalua
     selected = tuple(strongest.values())
     weight = min(MAX_NEGATIVE_WEIGHT, sum(signal.weight for signal in selected))
     return Evaluation(UNFAVORABLE, tuple(reasons), weight,
-                      _negative_severity(weight), semantic, selected, embedding)
+                      _negative_severity(weight), semantic, syntactic, selected, embedding)
 
 
 def _support_weight(signals, assessment) -> float:
@@ -130,6 +132,7 @@ def _evaluate_text(text: str, task_context: str = "", embedding_assessor=None) -
     """Evaluate natural language without treating ordinary prose as positive."""
     original = text
     semantic = assess_text(original, task_context)
+    syntactic = assess_syntax(original)
     text = _normaliser(original)
     reasons = []
     override = _contient(text, OVERRIDE_PATTERNS)
@@ -162,15 +165,24 @@ def _evaluate_text(text: str, task_context: str = "", embedding_assessor=None) -
         if external_destination:
             signals.append(EvidenceSignal("new_target", 1.0, "lexical"))
 
+    # A parser-confirmed negated/passive controlled action should not count as
+    # an agent directive.  If the English model cannot recognize an action at
+    # all (for example, a French field), retain the established contextual
+    # analysis instead of silently losing coverage for that language.
+    syntax_confirms_directive = (
+        syntactic.candidate or not syntactic.available
+        or syntactic.action_verb is None
+    )
     if semantic.candidate:
         reasons.append("semantic_" + semantic.category)
         if semantic.category == "instruction_override":
             signals.append(EvidenceSignal("instruction_override", 0.75, "contextual"))
-        elif semantic.category == "sensitive_data_request":
+        elif semantic.category == "sensitive_data_request" and syntax_confirms_directive:
             signals.extend((EvidenceSignal("agent_directive", 0.5, "syntactic"),
                             EvidenceSignal("sensitive_data", 0.75, "contextual")))
-        elif semantic.category in {"external_exfiltration", "unauthorized_write",
-                                   "unauthorized_restart"}:
+        elif (semantic.category in {"external_exfiltration", "unauthorized_write",
+                                    "unauthorized_restart"}
+              and syntax_confirms_directive):
             signals.extend((EvidenceSignal("agent_directive", 0.5, "syntactic"),
                             EvidenceSignal("new_target", 0.75, "contextual")))
 
@@ -184,10 +196,10 @@ def _evaluate_text(text: str, task_context: str = "", embedding_assessor=None) -
             signals.append(EvidenceSignal("embedding_support", support, "embedding"))
 
     if signals:
-        return replace(_combine_negative(reasons, signals, semantic, assessment),
+        return replace(_combine_negative(reasons, signals, semantic, syntactic, assessment),
                        lexical_checks=lexical_checks)
     return Evaluation(NEUTRAL, tuple(reasons) or ("no_strong_signal",), 0.0, "none",
-                      semantic, (), assessment, lexical_checks)
+                      semantic, syntactic, (), assessment, lexical_checks)
 
 
 def _evaluate_measure(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:
@@ -214,12 +226,14 @@ def _evaluate_unexpected_structured_value(text: str, format_reason: str,
     if text_evaluation.result == UNFAVORABLE:
         return _combine_negative(reasons, text_evaluation.signals + (
             EvidenceSignal("structural_anomaly", 0.5, "structured"),),
-            text_evaluation.semantic, text_evaluation.embedding)
+            text_evaluation.semantic, text_evaluation.syntactic,
+            text_evaluation.embedding)
     # The value is unreliable because it violates the declared technical
     # schema, but this result does not claim that an attacker caused it.
     return _combine_negative(reasons, (EvidenceSignal("structural_anomaly", 0.5,
                                                        "structured"),),
-                             text_evaluation.semantic, text_evaluation.embedding)
+                             text_evaluation.semantic, text_evaluation.syntactic,
+                             text_evaluation.embedding)
 
 
 def _evaluate_timestamp(text: str, task_context: str = "", embedding_assessor=None) -> Evaluation:

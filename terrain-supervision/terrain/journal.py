@@ -50,7 +50,7 @@ def _render_value(value, indent=0):
     pad = "  " * indent
     if isinstance(value, dict):
         if not value:
-            return [f"{pad}(empty)"]
+            return [f"{pad}(vide)"]
         lines = []
         for key, item in value.items():
             if isinstance(item, str) and "\n" in item:
@@ -64,7 +64,7 @@ def _render_value(value, indent=0):
         return lines
     if isinstance(value, list):
         if not value:
-            return [f"{pad}(empty)"]
+            return [f"{pad}(vide)"]
         lines = []
         for item in value:
             if isinstance(item, (dict, list)):
@@ -89,7 +89,7 @@ def _pretty_content(text):
     payload = stripped
     marker = "Tool result: "
     if stripped.startswith(marker):
-        prefix = "Tool result"
+        prefix = "Résultat de l’outil"
         payload = stripped[len(marker):].strip()
     parsed = _parse_json_value(payload)
     if parsed is None:
@@ -104,7 +104,10 @@ def _human_date(value):
     """Render an ISO timestamp as a date intended for a person to read."""
     try:
         moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return moment.astimezone(timezone.utc).strftime("%d %B %Y, %H:%M UTC")
+        months = ("janvier", "février", "mars", "avril", "mai", "juin",
+                  "juillet", "août", "septembre", "octobre", "novembre", "décembre")
+        utc = moment.astimezone(timezone.utc)
+        return f"{utc.day:02d} {months[utc.month - 1]} {utc.year}, {utc:%H:%M} UTC"
     except (TypeError, ValueError):
         return str(value)
 
@@ -112,16 +115,118 @@ def _human_date(value):
 def _execution_type(case):
     name = str(case or "")
     if name.startswith("calibration:") or name == "attaque":
-        return "ATTACK"
+        return "ATTAQUE"
     if name.startswith("T") and len(name) <= 4:
-        return "LEGITIMATE TASK"
+        return "TÂCHE LÉGITIME"
     if name.startswith("diagnostic") or name.startswith("demo:"):
         return "TEST"
-    return "EXECUTION"
+    return "EXÉCUTION"
+
+
+_SOURCE_KIND_LABELS = {
+    "journal": "Entrée de journal",
+    "ticket": "Ticket de maintenance",
+    "fiche": "Document de procédure",
+    "mail": "Courriel",
+}
+
+_SOURCE_FIELD_LABELS = {
+    "horodatage": "Horodatage",
+    "mesure": "Mesure",
+    "commentaire": "Commentaire",
+    "statut": "Statut",
+    "description": "Description",
+    "titre": "Titre",
+    "contenu": "Contenu",
+    "expediteur": "Adresse de l’expéditeur",
+    "sujet": "Objet",
+    "corps": "Corps du message",
+}
+
+_SOURCE_ORIGIN_LABELS = {
+    "interne": "interne",
+    "externe": "externe",
+    "systeme": "système",
+    "utilisateur": "utilisateur",
+}
+
+_SOURCE_CONTENT_TYPE_LABELS = {
+    "timestamp": "horodatage",
+    "measure": "mesure",
+    "status": "statut",
+    "email_address": "adresse e-mail",
+    "text": "texte",
+}
+
+
+def _source_kind_label(kind):
+    return _SOURCE_KIND_LABELS.get(str(kind), str(kind or "enregistrement inconnu"))
+
+
+def _source_field_label(field):
+    return _SOURCE_FIELD_LABELS.get(str(field), str(field or "champ inconnu"))
+
+
+def _source_origin_label(origin):
+    return _SOURCE_ORIGIN_LABELS.get(str(origin), str(origin or "inconnue"))
+
+
+def _source_content_type_label(content_type):
+    return _SOURCE_CONTENT_TYPE_LABELS.get(
+        str(content_type), str(content_type or "non déclaré"))
+
+
+def _oui_non(value):
+    return "oui" if value else "non"
+
+
+def _motif_lisible_en_francais(motif):
+    """Translate Axis B authorization reasons for people reading the journal.
+
+    The original reason is retained in the event structure and may still be
+    supplied to the model as tool feedback. This function affects only the
+    human-facing report and terminal summary.
+    """
+    text = str(motif or "")
+    prefix = ""
+    if text.startswith("[score-confiance] "):
+        prefix = "[score-confiance] "
+        text = text[len(prefix):]
+    if text.startswith("Recent risk ") and " remains active;" in text:
+        risk, _, source = text[len("Recent risk "):].partition(" remains active; ")
+        source = source.removeprefix("sensitive tools stay blocked until it is cleared for ")
+        return (f"{prefix}Le risque récent {risk} reste actif. Les outils sensibles "
+                f"restent bloqués jusqu’à sa disparition pour {source}")
+    if text.startswith("Effective trust ") and " is below the required " in text:
+        trust, _, tail = text[len("Effective trust "):].partition(" is below the required ")
+        threshold, _, source = tail.partition("; limiting source is ")
+        return (f"{prefix}La confiance effective {trust} est inférieure au seuil requis "
+                f"de {threshold}. La source limitante est {source}")
+    if text.startswith("A cross-source combined risk remains active"):
+        return (f"{prefix}Un risque combiné entre plusieurs sources reste actif "
+                "pour cette tâche. Les outils sensibles restent bloqués.")
+    return str(motif or "")
+
+
+def _source_title(source):
+    """Return a reader-facing identity for one source field or record."""
+    kind = _source_kind_label(source.get("kind", source.get("record_kind")))
+    record_id = source.get("record_id")
+    if record_id is None:
+        key = str(source.get("source_key", source.get("key", "")))
+        parts = key.split(":", 2)
+        if len(parts) == 3:
+            record_id = parts[1]
+            field = parts[2]
+            source = {**source, "kind": parts[0], "field": field}
+            kind = _source_kind_label(parts[0])
+    field = source.get("field")
+    label = f"{kind} #{record_id}" if record_id not in {None, ""} else kind
+    return label if not field else f"{label} — {_source_field_label(field)}"
 
 
 class Journal:
-    """Write an English report organized around campaigns, executions, and steps."""
+    """Écrit un rapport lisible en français, sans le renvoyer au modèle."""
     def __init__(self, path):
         path = Path(path).expanduser()
         if not path.is_absolute() and path.parent == Path("."):
@@ -167,57 +272,82 @@ class Journal:
 
     def _block(self, label, text):
         self._write(f"{label}:")
-        for line in str(text or "(empty)").splitlines() or ["(empty)"]:
+        for line in str(text or "(vide)").splitlines() or ["(vide)"]:
             self._write(f"  {line}")
 
     def _indented(self, text):
-        for line in str(text or "(empty)").splitlines() or ["(empty)"]:
+        for line in str(text or "(vide)").splitlines() or ["(vide)"]:
             self._write(f"  {line}")
 
     def _messages(self, messages):
         labels = {
-            "system": "SYSTEM INSTRUCTIONS",
-            "assistant": "PREVIOUS MODEL RESPONSE",
+            "system": "INSTRUCTIONS SYSTÈME",
+            "assistant": "RÉPONSE PRÉCÉDENTE DU MODÈLE",
         }
-        self._subsection(f"MODEL INPUT — {len(messages)} message(s)")
+        self._subsection(f"ENTRÉE DU MODÈLE — {len(messages)} message(s)")
         for index, message in enumerate(messages, 1):
             content = str(message.get("content", ""))
             if message.get("role") == "user":
                 if content.startswith("Technician request:"):
-                    label = "ORIGINAL TECHNICIAN TASK"
+                    label = "TÂCHE ORIGINALE DU TECHNICIEN"
                 elif content.startswith("Tool result:"):
-                    label = "TOOL RESULT PROVIDED TO MODEL"
+                    label = "RÉSULTAT D’OUTIL FOURNI AU MODÈLE"
                 elif content.startswith("Checklist of explicit request requirements:"):
-                    label = "TASK CHECKLIST"
+                    label = "LISTE DES EXIGENCES DE LA TÂCHE"
                 elif content.startswith("Current task state,"):
-                    label = "TASK STATE"
+                    label = "ÉTAT ACTUEL DE LA TÂCHE"
                 else:
-                    label = "USER MESSAGE"
+                    label = "MESSAGE UTILISATEUR"
             else:
                 label = labels.get(message.get("role"), f"MESSAGE ({message.get('role', '?')})")
             self._subsection(f"[{index}] {label}")
             self._indented(_pretty_content(content))
 
     def _sources(self, sources):
-        self._subsection("Sources visible in this result")
+        self._subsection("Sources de données dans ce résultat d’outil")
         if not sources:
-            self._write("  (none)")
+            self._write("  Aucune métadonnée de source n’a été renvoyée avec ce résultat.")
             return
+        records = {}
         for source in sources:
-            self._write("  {key}".format(key=source.get("key", "?")))
-            self._write("    kind: {kind}".format(kind=source.get("kind", "?")))
-            self._write("    field: {field}".format(field=source.get("field", "?")))
-            self._write("    type: {content_type}".format(
-                content_type=source.get("content_type", "?")))
-            self._write("    origin: {origin}".format(origin=source.get("origin", "?")))
-            self._write("    actor: {actor}".format(actor=source.get("actor", "?")))
-            self._write()
+            record_key = (
+                source.get("kind", "?"),
+                source.get("record_id", "?"),
+                source.get("origin", "?"),
+                source.get("actor", "?"),
+            )
+            records.setdefault(record_key, []).append(source)
+
+        self._write(
+            "  Cette section identifie les enregistrements du corpus qui ont fourni "
+            "le résultat présenté au modèle. Chaque ligne ci-dessous correspond à un "
+            "champ d’un enregistrement, et non à un nouvel auteur ou à un nouvel appel d’outil.")
+        self._label("  Champs source", len(sources))
+        self._label("  Enregistrements d’origine", len(records))
+        self._write(
+            "  Les identifiants techniques sont conservés uniquement pour la traçabilité. "
+            "Par exemple, journal:1822:mesure désigne le champ Mesure de l’entrée de journal n°1822.")
+
+        for (kind, record_id, origin, actor), fields in records.items():
+            record_title = (
+                f"{_source_kind_label(kind)} #{record_id}"
+                if record_id not in {None, "", "?"} else _source_kind_label(kind))
+            self._subsection(f"  {record_title}")
+            self._label("    Auteur déclaré", actor)
+            self._label("    Origine déclarée", _source_origin_label(origin))
+            self._write("    Champs transmis au modèle :")
+            for source in fields:
+                field = _source_field_label(source.get("field"))
+                data_type = _source_content_type_label(source.get("content_type"))
+                self._write(f"      - {field} ({data_type})")
+            identifiers = ", ".join(str(source.get("key", "?")) for source in fields)
+            self._write(f"    Identifiant(s) technique(s) du champ : {identifiers}")
 
     def _axis_b_observations(self, observations):
         if not observations:
             return
-        self._section("Trust calculation")
-        self._write("AXIS B EVIDENCE ASSESSMENT")
+        self._section("Calcul de confiance")
+        self._write("ÉVALUATION DES ÉLÉMENTS DE PREUVE — AXE B")
         counts = {}
         for item in observations:
             update = item.get("trust_update", "none")
@@ -225,98 +355,115 @@ class Journal:
         summary = ", ".join(
             f"{update} x{count}" if count > 1 else update
             for update, count in counts.items())
-        self._label("Fields assessed", len(observations))
-        self._label("Updates in this result", summary or "none")
+        self._label("Champs évalués", len(observations))
+        self._label("Mises à jour dans ce résultat", summary or "aucune")
         for item in observations:
-            self._subsection(item.get("source_key", "?"))
-            self._label("  Author", item.get("author_id", "?"))
-            self._label("  Category", item.get("record_kind", "?"))
-            self._label("  Content type", item.get("content_type", "not recorded"))
+            self._subsection(_source_title(item))
+            self._label("  Auteur déclaré", item.get("author_id", "?"))
+            self._label("  Type d’enregistrement", _source_kind_label(item.get("record_kind")))
+            self._label("  Format de données", _source_content_type_label(
+                item.get("content_type", "non enregistré")))
+            self._label("  Identifiant technique du champ", item.get("source_key", "?"))
             if "content" in item:
-                self._subsection("  Exact field content evaluated")
+                self._subsection("  Contenu exact du champ évalué")
                 self._indented(_pretty_content(str(item["content"])))
-            self._subsection("  Assessment")
-            self._label("    Result", item.get("result", "?"))
-            self._label("    Severity", item.get("severity", "?"))
+            self._subsection("  Évaluation")
+            self._label("    Résultat", item.get("result", "?"))
+            self._label("    Sévérité", item.get("severity", "?"))
             weight = item.get("weight", 0)
-            self._label("    Weight", f"{weight:g}" if isinstance(weight, (int, float)) else weight)
-            self._label("    Reasons", ", ".join(item.get("reasons") or []) or "none")
+            self._label("    Poids", f"{weight:g}" if isinstance(weight, (int, float)) else weight)
+            self._label("    Raisons", ", ".join(item.get("reasons") or []) or "aucune")
             lexical_checks = item.get("lexical_checks", [])
             if lexical_checks:
-                self._subsection("  Lexical analysis")
-                self._write("    The exact field content above was normalized for case, Unicode, and spacing.")
+                self._subsection("  Analyse lexicale")
+                self._write("    Le contenu exact ci-dessus a été normalisé pour la casse, Unicode et les espaces.")
                 for check in lexical_checks:
-                    status = "MATCHED" if check.get("matched") else "not matched"
+                    status = "DÉTECTÉ" if check.get("matched") else "non détecté"
                     self._write(f"    - {check.get('name', '?')}: {status}")
             elif item.get("content_type") in {"timestamp", "measure", "status", "email_address"}:
-                self._subsection("  Lexical analysis")
-                self._write("    Not run: the declared structured type was validated first.")
+                self._subsection("  Analyse lexicale")
+                self._write("    Non exécutée : le type structuré déclaré a été validé en premier.")
             signals = item.get("signals", [])
-            self._subsection("  Evidence")
+            self._subsection("  Éléments de preuve")
             if signals:
-                self._write("    Beta evidence after duplicate removal:")
+                self._write("    Éléments pris en compte pour β après déduplication :")
                 for signal in signals:
                     self._write("      - {kind}: weight={weight:g}; origin={origin}".format(
                         **signal))
             else:
-                self._write("    Beta evidence after duplicate removal: none")
+                self._write("    Éléments pris en compte pour β après déduplication : aucun")
             semantic = item.get("semantic")
             if semantic:
-                self._subsection("  Semantic analysis")
+                self._subsection("  Analyse sémantique et contextuelle")
                 self._write(
-                    "    semantic observation ({protocol}): category={category}; "
-                    "strength={score:.2f}; candidate={candidate}".format(**semantic))
+                    "    observation sémantique ({protocol}) : catégorie={category}; "
+                    "force={score:.2f}; candidat={candidate}".format(**semantic))
                 self._write(
-                    "    matched concepts: " +
-                    (", ".join(semantic["matched_concepts"]) or "none"))
-                self._write("    contextual reasons: " +
-                            (", ".join(semantic["reasons"]) or "none"))
-                self._write(f"    closest reference: {semantic['reference']}")
-                self._write("    semantic result: included only through the evidence list above")
-                self._subsection("  Syntactic analysis")
-                if semantic.get("candidate"):
-                    self._write("    Contextual analysis identified a candidate. Any syntactic signal is listed in Evidence above.")
-                else:
-                    self._write("    No standalone syntactic signal was emitted. The current design only emits syntactic evidence when contextual analysis identifies a risky candidate.")
+                    "    concepts détectés : " +
+                    (", ".join(semantic["matched_concepts"]) or "aucun"))
+                self._write("    raisons contextuelles : " +
+                            (", ".join(semantic["reasons"]) or "aucune"))
+                self._write(f"    référence la plus proche : {semantic['reference']}")
+                self._write("    résultat sémantique : pris en compte uniquement par les éléments de preuve ci-dessus")
+            syntactic = item.get("syntactic")
+            if syntactic:
+                self._subsection("  Analyse syntaxique")
+                self._write(
+                    "    analyseur ({protocol}) : disponible={available}; "
+                    "candidat={candidate}".format(
+                        **{**syntactic, "available": _oui_non(syntactic.get("available")),
+                           "candidate": _oui_non(syntactic.get("candidate"))}))
+                if syntactic.get("available"):
+                    self._write(
+                        "    verbe d’action={action_verb}; impératif={imperative}; "
+                        "négation={negated}; voix passive={passive}".format(
+                            **{**syntactic, "imperative": _oui_non(syntactic.get("imperative")),
+                               "negated": _oui_non(syntactic.get("negated")),
+                               "passive": _oui_non(syntactic.get("passive"))}))
+                    self._write(
+                        "    objet={object}; cible={target}; type de cible={target_kind}".format(
+                            **syntactic))
+                self._write("    raisons syntaxiques : " +
+                            (", ".join(syntactic.get("reasons", [])) or "aucune"))
             embedding = item.get("embedding")
             if embedding:
                 self._subsection("  Embedding")
                 self._write(
-                    "    embedding observation ({protocol}): category={category}; "
-                    "attack={attack_similarity:.3f}; legitimate={legitimate_similarity:.3f}; "
-                    "margin={margin:.3f}; qualified={qualified}; support={support_weight:g}".format(
-                        **embedding))
+                    "    observation d’embedding ({protocol}) : catégorie={category}; "
+                    "attaque={attack_similarity:.3f}; légitime={legitimate_similarity:.3f}; "
+                    "marge={margin:.3f}; qualifié={qualified}; soutien={support_weight:g}".format(
+                        **{**embedding, "qualified": _oui_non(embedding.get("qualified"))}))
                 if embedding["support_weight"]:
-                    self._write("    embedding result: included only through the evidence list above")
+                    self._write("    résultat de l’embedding : pris en compte uniquement par les éléments de preuve ci-dessus")
                 else:
-                    self._write("    embedding result: recorded without a beta change")
-            self._subsection("  Trust calculation")
+                    self._write("    résultat de l’embedding : enregistré sans modification de β")
+            self._subsection("  Calcul de confiance")
             self._write(
-                "    Alpha: {alpha_before} -> {alpha_after}".format(**item))
+                "    Alpha : {alpha_before} -> {alpha_after}".format(**item))
             self._write(
-                "    Beta: {beta_before} -> {beta_after}".format(**item))
-            self._write(f"    Applied update: {item['trust_update']}")
+                "    Bêta : {beta_before} -> {beta_after}".format(**item))
+            self._write(f"    Mise à jour appliquée : {item['trust_update']}")
             if item.get("recent_risk_update") not in {None, "disabled"}:
                 self._write(
-                    "    Recent risk: {recent_risk_before:.2f} -> "
+                    "    Risque récent : {recent_risk_before:.2f} -> "
                     "{recent_risk_after:.2f} ({recent_risk_update})".format(**item))
             if item.get("version"):
-                self._write(f"    Content version (SHA-256): {item['version']}")
+                self._write(f"    Version du contenu (SHA-256) : {item['version']}")
 
     def _combined_risks(self, risks):
         if not risks:
             return
-        self._section("Cross-field risk correlation")
-        self._write("AXIS B COMBINED RISK")
+        self._section("Corrélation de risque entre champs")
+        self._write("RISQUE COMBINÉ — AXE B")
         for risk in risks:
-            self._subsection(risk.get("category", "combined risk"))
-            self._label("  Scope", risk.get("scope", "?"))
-            self._label("  Activated", risk.get("activated", False))
-            self._label("  Components", ", ".join(risk.get("components", [])) or "none")
-            self._write("  Fields involved:")
+            self._subsection(risk.get("category", "risque combiné"))
+            self._label("  Portée", risk.get("scope", "?"))
+            self._label("  Activé", _oui_non(risk.get("activated", False)))
+            self._label("  Composants", ", ".join(risk.get("components", [])) or "aucun")
+            self._write("  Champs concernés :")
             for key in risk.get("source_keys", []):
                 self._write(f"    - {key}")
-            self._write("  Source categories:")
+            self._write("  Catégories de sources :")
             for source in risk.get("source_categories", []):
                 self._write("    - {author}/{category}".format(**source))
 
@@ -330,9 +477,9 @@ class Journal:
     def _progress_line(self):
         if self.progresso_indice is None or self.progresso_total is None:
             return None
-        line = f"{self.progresso_fase or self.tipo or 'EXECUTION'} {self.progresso_indice}/{self.progresso_total}"
+        line = f"{self.progresso_fase or self.tipo or 'EXÉCUTION'} {self.progresso_indice}/{self.progresso_total}"
         if self.campanha_indice is not None and self.campanha_total is not None:
-            line += f" | campaign {self.campanha_indice}/{self.campanha_total}"
+            line += f" | campagne {self.campanha_indice}/{self.campanha_total}"
         return line
 
     def noter(self, evenement, **donnees):
@@ -351,260 +498,277 @@ class Journal:
     def _write_event(self, event):
         name = event["evenement"]
         if name == "campagne_debut":
-            self._heading("CAMPAIGN START")
+            self._heading("DÉBUT DE LA CAMPAGNE")
             labels = {
-                "date_utc": "Date and time (UTC)",
-                "commande": "Command",
-                "modele": "Model provider",
-                "ollama_modele": "Ollama model",
+                "date_utc": "Date et heure (UTC)",
+                "commande": "Commande",
+                "modele": "Fournisseur de modèle",
+                "ollama_modele": "Modèle Ollama",
                 "protections": "Protections",
-                "corpus_version": "Corpus version",
-                "graine": "Corpus seed",
-                "official_calibration_version": "Official calibration version",
-                "historique_version": "History version",
-                "limite_resultat_modele": "Per-result model limit",
-                "budget_resultats_modele": "Model result budget",
-                "systeme_version": "System prompt version",
-                "trust_authorization": "Trust authorization",
-                "trust_decay_factor": "Trust decay factor",
-                "trust_recent_risk": "Recent-risk memory",
-                "trust_recent_risk_recovery": "Recent-risk recovery",
+                "corpus_version": "Version du corpus",
+                "graine": "Graine du corpus",
+                "official_calibration_version": "Version de la calibration officielle",
+                "historique_version": "Version de l’historique",
+                "limite_resultat_modele": "Limite par résultat de modèle",
+                "budget_resultats_modele": "Budget de résultats du modèle",
+                "systeme_version": "Version des instructions système",
+                "trust_authorization": "Autorisation par confiance",
+                "trust_decay_factor": "Facteur de décroissance de confiance",
+                "trust_recent_risk": "Mémoire de risque récent",
+                "trust_recent_risk_recovery": "Réduction du risque récent",
             }
             for key, label in labels.items():
                 if key in event:
                     self._label(label, _human_date(event[key]) if key == "date_utc" else event[key])
         elif name == "execution_debut":
             self._heading(f"{self.tipo}: {event['cas']}")
-            self._label("Execution ID", event["execution"])
+            self._label("Identifiant d’exécution", event["execution"])
             if self._progress_line():
-                self._label("Progress", self._progress_line())
-            self._block("Technician task", event["tache"])
-            self._label("Maximum steps", event["max_etapes"])
+                self._label("Progression", self._progress_line())
+            self._block("Tâche du technicien", event["tache"])
+            self._label("Nombre maximal d’étapes", event["max_etapes"])
         elif name == "etape_debut":
-            self._step_heading(f"STEP {event['etape']}/{self.max_etapes}")
+            self._step_heading(f"ÉTAPE {event['etape']}/{self.max_etapes}")
         elif name == "modele_requete":
-            self._section("Model call")
-            self._write("MODEL REQUEST")
-            self._label("Endpoint", event["url"])
+            self._section("Appel au modèle")
+            self._write("REQUÊTE AU MODÈLE")
+            self._label("Point d’accès", event["url"])
             request = event["charge"]
-            self._label("Model", request.get("model", "?"))
+            self._label("Modèle", request.get("model", "?"))
             options = request.get("options", {})
             if options:
                 self._label("Options", ", ".join(f"{key}={value}" for key, value in options.items()))
-            self._label("Structured output", "enabled" if request.get("format") else "disabled")
+            self._label("Sortie structurée", "activée" if request.get("format") else "désactivée")
             self._messages(request.get("messages", []))
         elif name == "modele_reponse":
-            self._section("Model response")
-            self._write("MODEL OUTPUT (RAW RESPONSE)")
+            self._section("Réponse du modèle")
+            self._write("SORTIE DU MODÈLE (RÉPONSE BRUTE)")
             response = event["reponse"]
             content = response.get("message", {}).get("content", "")
-            self._subsection("Exact response returned by the model")
+            self._subsection("Réponse exacte renvoyée par le modèle")
             self._indented(_pretty_content(content))
             metadata = [f"{key}={response[key]}" for key in
                         ("done_reason", "prompt_eval_count", "eval_count", "total_duration")
                         if key in response]
             if metadata:
-                self._label("Response metadata", ", ".join(metadata))
+                self._label("Métadonnées de la réponse", ", ".join(metadata))
         elif name == "decision":
-            self._section("Decision")
-            self._write("MODEL DECISION")
+            self._section("Décision")
+            self._write("DÉCISION DU MODÈLE")
             action = event["action"]
             if "fin" in action:
-                self._block("Final response", action["fin"])
+                self._block("Réponse finale", action["fin"])
             else:
-                self._label("Tool", action.get("outil", "?"))
+                self._label("Outil", action.get("outil", "?"))
                 for key, value in (action.get("args") or {}).items():
                     self._block(f"Argument {key}", value)
         elif name == "outil_decision":
-            self._section("Tool authorization")
-            self._write("TOOL AUTHORIZATION")
-            self._label("Tool", event["outil"])
-            self._label("Status", "ALLOWED" if event["autorise"] else "REFUSED")
+            self._section("Autorisation de l’outil")
+            self._write("AUTORISATION DE L’OUTIL")
+            self._label("Outil", event["outil"])
+            self._label("Statut", "AUTORISÉ" if event["autorise"] else "REFUSÉ")
             trust = event.get("trust_authorization")
             if trust:
-                self._label("Required trust", f"{trust['threshold']:.2f}")
-                self._label("Negative-evidence gate",
-                            "ACTIVE" if trust["negative_evidence_gate"] else "NOT TRIGGERED")
+                self._label("Confiance requise", f"{trust['threshold']:.2f}")
+                self._label("Barrière des preuves négatives",
+                            "ACTIVE" if trust["negative_evidence_gate"] else "NON DÉCLENCHÉE")
                 if trust.get("recent_risk_enabled"):
-                    self._label("Recent-risk memory",
-                                "ACTIVE" if trust.get("recent_risk_gate") else "CLEAR")
+                    self._label("Mémoire de risque récent",
+                                "ACTIVE" if trust.get("recent_risk_gate") else "AUCUN RISQUE ACTIF")
                 effective = trust["effective_trust"]
-                self._label("Effective trust",
-                            "not applied" if effective is None else f"{effective:.2f}")
-                self._write("Sources considered:")
+                self._label("Confiance effective",
+                            "non appliquée" if effective is None else f"{effective:.2f}")
+                self._write("Sources prises en compte :")
                 for source in trust["sources"]:
-                    self._write("  - {author}/{category}: {trust:.2f}".format(**source))
+                    self._write(
+                        f"  - {source['author']} / "
+                        f"{_source_kind_label(source['category'])} : {source['trust']:.2f}")
                 if trust.get("recent_risk_sources"):
-                    self._write("Recent-risk sources:")
+                    self._write("Sources avec risque récent :")
                     for source in trust["recent_risk_sources"]:
-                        self._write("  - {author}/{category}: risk={risk:.2f}, "
-                                    "recent trust={trust:.2f}".format(**source))
+                        self._write(
+                            f"  - {source['author']} / "
+                            f"{_source_kind_label(source['category'])} : "
+                            f"risque={source['risk']:.2f}, "
+                            f"confiance actuelle={source['trust']:.2f}")
                 if trust.get("combined_risk_gate"):
-                    self._label("Combined task risk", "ACTIVE")
+                    self._label("Risque combiné de la tâche", "ACTIF")
                 if trust.get("combined_risks"):
-                    self._write("Combined correlations considered:")
+                    self._write("Corrélations combinées prises en compte :")
                     for risk in trust["combined_risks"]:
                         self._write("  - {category}: scope={scope}; active={activated}".format(
                             **risk))
             if event.get("motif"):
-                self._block("Reason", event["motif"])
+                self._block("Motif", _motif_lisible_en_francais(event["motif"]))
         elif name == "outil_resultat":
-            self._section("Tool result")
-            self._write("TOOL RESULT")
-            self._label("Tool", event["outil"])
-            self._label("Aggregate origin", event.get("origine", "?"))
-            self._label("Aggregate source", event.get("source", "?"))
-            self._block("Full result", event.get("texte_complet", ""))
+            self._section("Résultat de l’outil")
+            self._write("RÉSULTAT DE L’OUTIL")
+            self._label("Outil", event["outil"])
+            self._label("Origine agrégée", _source_origin_label(event.get("origine", "?")))
+            self._label("Source agrégée", event.get("source", "?"))
+            self._block("Résultat complet", event.get("texte_complet", ""))
             self._sources(event.get("sources", []))
             self._axis_b_observations(event.get("axis_b_observations", []))
             self._combined_risks(event.get("axis_b_combined_risks", []))
         elif name == "axis_b_episode_step":
-            self._write("AXIS B CONTINUOUS EPISODE STEP")
-            self._label("Step", event["label"])
+            self._write("ÉTAPE D’ÉPISODE CONTINU — AXE B")
+            self._label("Étape", event["label"])
             self._axis_b_observations([event["observation"]])
         elif name == "classification_case":
-            self._write(f"CLASSIFICATION CASE: {event['case_id']}")
-            self._label("Expected class", event["expected"])
-            self._label("Outcome", event["outcome"])
+            self._write(f"CAS DE CLASSIFICATION : {event['case_id']}")
+            self._label("Classe attendue", event["expected"])
+            self._label("Résultat", event["outcome"])
             if event.get("injected_content"):
-                self._block("Injected content", event["injected_content"])
+                self._block("Contenu injecté", event["injected_content"])
             if event.get("task"):
-                self._block("Legitimate task", event["task"])
+                self._block("Tâche légitime", event["task"])
             observations = event.get("semantic_observations", [])
-            self._subsection("Semantic comparison (observation only)")
+            self._subsection("Comparaison sémantique (observation uniquement)")
             if not observations:
-                self._write("  (no text evidence was read)")
+                self._write("  (aucun élément textuel n’a été lu)")
             for observation in observations:
-                self._subsection(observation.get("source_key", "?"))
+                self._subsection(_source_title(observation))
                 self._write(
-                    "  assessment={assessment_result}".format(**observation))
+                    "  évaluation={assessment_result}".format(**observation))
                 self._write(
-                    "  semantic={semantic_category} ({semantic_score:.2f}); "
-                    "candidate={semantic_candidate}".format(**observation))
-                self._write("  assessment reasons: " +
-                            (", ".join(observation["assessment_reasons"]) or "none"))
-                self._write("  Evidence")
+                    "  sémantique={semantic_category} ({semantic_score:.2f}); "
+                    "candidat={semantic_candidate}".format(**observation))
+                self._write("  raisons de l’évaluation : " +
+                            (", ".join(observation["assessment_reasons"]) or "aucune"))
+                self._write("  Éléments de preuve")
                 signals = observation["beta_signals"]
                 if signals:
-                    self._write("    beta evidence after duplicate removal:")
+                    self._write("    éléments pris en compte pour β après déduplication :")
                     for signal in signals:
                         self._write("      - {kind}: weight={weight:g}; origin={origin}".format(
                             **signal))
                 else:
-                    self._write("    beta evidence after duplicate removal: none")
-                self._write("  Semantic analysis")
-                self._write("    concepts: " +
-                            (", ".join(observation["matched_concepts"]) or "none"))
-                self._write("    contextual reasons: " +
-                            (", ".join(observation["semantic_reasons"]) or "none"))
+                    self._write("    éléments pris en compte pour β après déduplication : aucun")
+                self._write("  Analyse sémantique")
+                self._write("    concepts : " +
+                            (", ".join(observation["matched_concepts"]) or "aucun"))
+                self._write("    raisons contextuelles : " +
+                            (", ".join(observation["semantic_reasons"]) or "aucune"))
+                syntactic = observation.get("syntactic")
+                if syntactic:
+                    self._write("  Analyse syntaxique")
+                    self._write(
+                        "    disponible={available}; candidat={candidate}; "
+                        "verbe={action_verb}; impératif={imperative}; "
+                        "négation={negated}; voix passive={passive}; cible={target}".format(
+                            **{**syntactic, "available": _oui_non(syntactic.get("available")),
+                               "candidate": _oui_non(syntactic.get("candidate")),
+                               "imperative": _oui_non(syntactic.get("imperative")),
+                               "negated": _oui_non(syntactic.get("negated")),
+                               "passive": _oui_non(syntactic.get("passive"))}))
                 embedding = observation.get("embedding")
                 if embedding:
                     self._write("  Embedding")
                     self._write(
-                        "    embedding observation ({protocol}): category={category}; "
-                        "attack={attack_similarity:.3f}; legitimate={legitimate_similarity:.3f}; "
-                        "margin={margin:.3f}; qualified={qualified}; support={support_weight:g}".format(
-                            **embedding))
-                self._block("  Evidence text", observation["content"])
+                        "    observation d’embedding ({protocol}) : catégorie={category}; "
+                        "attaque={attack_similarity:.3f}; légitime={legitimate_similarity:.3f}; "
+                        "marge={margin:.3f}; qualifié={qualified}; soutien={support_weight:g}".format(
+                            **{**embedding, "qualified": _oui_non(embedding.get("qualified"))}))
+                self._block("  Texte évalué", observation["content"])
         elif name == "classification_summary":
-            self._heading("AXIS B CLASSIFICATION SUMMARY")
-            self._label("True positives", event["true_positive"])
-            self._label("False positives", event["false_positive"])
-            self._label("True negatives", event["true_negative"])
-            self._label("False negatives", event["false_negative"])
-            self._label("Recall", f"{event['recall']:.2%}")
-            self._label("Precision", f"{event['precision']:.2%}")
-            self._label("False-positive rate", f"{event['false_positive_rate']:.2%}")
-            self._label("False-negative rate", f"{event['false_negative_rate']:.2%}")
-            self._label("Semantic protocol", event.get("semantic_protocol", "not recorded"))
-            self._label("False negatives with semantic candidate",
-                        event.get("false_negative_semantic_candidates", "not recorded"))
-            self._label("Legitimate semantic candidates",
-                        event.get("legitimate_semantic_candidates", "not recorded"))
+            self._heading("RÉSUMÉ DE LA CLASSIFICATION — AXE B")
+            self._label("Vrais positifs", event["true_positive"])
+            self._label("Faux positifs", event["false_positive"])
+            self._label("Vrais négatifs", event["true_negative"])
+            self._label("Faux négatifs", event["false_negative"])
+            self._label("Rappel", f"{event['recall']:.2%}")
+            self._label("Précision", f"{event['precision']:.2%}")
+            self._label("Taux de faux positifs", f"{event['false_positive_rate']:.2%}")
+            self._label("Taux de faux négatifs", f"{event['false_negative_rate']:.2%}")
+            self._label("Protocole sémantique", event.get("semantic_protocol", "non enregistré"))
+            self._label("Faux négatifs avec candidat sémantique",
+                        event.get("false_negative_semantic_candidates", "non enregistré"))
+            self._label("Candidats sémantiques légitimes",
+                        event.get("legitimate_semantic_candidates", "non enregistré"))
         elif name == "trust_lifecycle_summary":
-            self._heading("AXIS B TRUST-LIFECYCLE SUMMARY")
-            self._label("Initial legitimate warm-up", event["warmup_count"])
-            self._label("Recovery observations measured", event["recovery_observations"])
-            self._label("Decay factor", event["decay_factor"])
-            self._label("Recent-risk recovery", event["recent_risk_recovery"])
-            self._label("Embedding support", event["embedding_support"])
+            self._heading("RÉSUMÉ DU CYCLE DE CONFIANCE — AXE B")
+            self._label("Observations légitimes initiales", event["warmup_count"])
+            self._label("Observations de récupération mesurées", event["recovery_observations"])
+            self._label("Facteur de décroissance", event["decay_factor"])
+            self._label("Réduction du risque récent", event["recent_risk_recovery"])
+            self._label("Soutien par embedding", _oui_non(event["embedding_support"]))
             classification = event["classification"]
-            self._subsection("Detection metrics")
-            self._write("  TP={true_positive}; FP={false_positive}; TN={true_negative}; "
-                        "FN={false_negative}; precision={precision:.2%}; recall={recall:.2%}".format(
+            self._subsection("Métriques de détection")
+            self._write("  VP={true_positive}; FP={false_positive}; VN={true_negative}; "
+                        "FN={false_negative}; précision={precision:.2%}; rappel={recall:.2%}".format(
                             **classification))
             execution = event["execution"]
-            self._subsection("Official execution metrics")
-            self._write("  Attacks prevented: {attacks_prevented}/{attacks_total}".format(**execution))
-            self._write("  Legitimate tasks completed: {legitimate_completed}/"
+            self._subsection("Métriques d’exécution officielle")
+            self._write("  Attaques empêchées : {attacks_prevented}/{attacks_total}".format(**execution))
+            self._write("  Tâches légitimes terminées : {legitimate_completed}/"
                         "{legitimate_total}".format(**execution))
-            self._subsection("Patient-attacker lifecycle metrics")
+            self._subsection("Métriques du cycle de l’attaquant patient")
             for record in event["lifecycle"]:
                 self._write(
-                    "  - {payload}: severity={severity}; detected={detected}; "
-                    "risk_activated={risk_activated}; initially_blocked={initially_blocked}; "
-                    "risk_clear_after={risk_clear_after}; tools_release_after="
+                    "  - {payload} : sévérité={severity}; détecté={detected}; "
+                    "risque_activé={risk_activated}; bloqué_initialement={initially_blocked}; "
+                    "risque_effacé_après={risk_clear_after}; outils_autorisés_après="
                     "{tools_release_after}".format(**record))
-            self._subsection("Split-attack correlation metrics")
+            self._subsection("Métriques de corrélation d’attaque répartie")
             for record in event.get("cross_field", []):
                 self._write(
-                    "  - {case}: blocked_in_task={blocked_in_task}; "
-                    "combined_risk_cleared_after_task={combined_risk_cleared_after_task}; "
-                    "source_risk_blocks_next_task={source_risk_blocks_next_task}; "
-                    "beta={beta_by_source}; "
-                    "recent_risk={recent_risk_by_source}".format(**record))
+                    "  - {case} : bloqué_dans_la_tâche={blocked_in_task}; "
+                    "risque_combiné_effacé_après_tâche={combined_risk_cleared_after_task}; "
+                    "risque_de_source_bloque_tâche_suivante={source_risk_blocks_next_task}; "
+                    "bêta={beta_by_source}; "
+                    "risque_récent={recent_risk_by_source}".format(**record))
         elif name == "recidivism_summary":
-            self._heading("AXIS B RECIDIVISM EXPERIMENT")
-            self._label("Initial legitimate warm-up", event["warmup_count"])
-            self._label("Recent-risk recovery", event["recent_risk_recovery"])
-            self._write("Risk escalation: first incident=1.0; later incidents=+0.5; cap=3.0")
+            self._heading("EXPÉRIENCE DE RÉCIDIVE — AXE B")
+            self._label("Observations légitimes initiales", event["warmup_count"])
+            self._label("Réduction du risque récent", event["recent_risk_recovery"])
+            self._write("Escalade du risque : premier incident=1,0; incidents suivants=+0,5; plafond=3,0")
             for scenario in event["scenarios"]:
                 self._subsection(
                     f"{scenario['scenario']} / {scenario['payload']} — "
-                    f"attacks={scenario['occurrences']}; "
-                    f"recovery between={scenario['recovery_between']}")
-                self._write("  attack | severity | alpha | beta | trust | "
-                            "risk before -> after | email")
+                    f"attaques={scenario['occurrences']}; "
+                    f"récupération entre deux attaques={scenario['recovery_between']}")
+                self._write("  attaque | sévérité | alpha | bêta | confiance | "
+                            "risque avant -> après | e-mail")
                 for row in scenario["rows"]:
                     self._write(
                         "  {occurrence:6d} | {severity:8s} | {alpha:5.1f} | "
                         "{beta:4.1f} | {trust:.3f} | {risk_before:.2f} -> "
                         "{risk_after:.2f} ({risk_update}) | {email}".format(
-                            **row, email="ALLOW" if row["email_allowed"] else "BLOCK"))
+                            **row, email="AUTORISÉ" if row["email_allowed"] else "BLOQUÉ"))
         elif name == "execution_fin":
-            self._section("Execution result")
-            self._write("EXECUTION END")
-            self._label("Reason", event["raison"])
-            self._label("Tool calls", event["appels"])
-            self._block("Final response", event["reponse"])
+            self._section("Résultat de l’exécution")
+            self._write("FIN DE L’EXÉCUTION")
+            self._label("Motif", event["raison"])
+            self._label("Appels d’outils", event["appels"])
+            self._block("Réponse finale", event["reponse"])
         elif name == "calibration_verdict":
             self._section("Verdict")
-            self._write("CALIBRATION ATTACK VERDICT")
-            self._label("Case", event["cas"])
-            self._label("Intended objective", event["objectif_prevu"])
-            self._label("Intended objective reached", event["objectif_prevu_atteint"])
-            self._label("Any prohibited effect", event["verdict"]["reussie"])
-            self._label("Prohibited effects", ", ".join(event["verdict"]["objectifs_atteints"]) or "none")
+            self._write("VERDICT DE L’ATTAQUE DE CALIBRATION")
+            self._label("Cas", event["cas"])
+            self._label("Objectif prévu", event["objectif_prevu"])
+            self._label("Objectif prévu atteint", _oui_non(event["objectif_prevu_atteint"]))
+            self._label("Effet interdit constaté", _oui_non(event["verdict"]["reussie"]))
+            self._label("Effets interdits", ", ".join(event["verdict"]["objectifs_atteints"]) or "aucun")
         elif name == "tache_verdict":
             self._section("Verdict")
-            self._write("LEGITIMATE TASK VERDICT")
-            self._label("Case", event["cas"])
-            self._label("Completed correctly", event["reussie"])
+            self._write("VERDICT DE LA TÂCHE LÉGITIME")
+            self._label("Cas", event["cas"])
+            self._label("Terminée correctement", _oui_non(event["reussie"]))
         elif name == "attaque_verdict":
             self._section("Verdict")
-            self._write("ATTACK VERDICT")
-            self._label("Case", event["cas"])
-            self._label("Any prohibited effect", event["verdict"]["reussie"])
-            self._label("Prohibited effects", ", ".join(event["verdict"]["objectifs_atteints"]) or "none")
+            self._write("VERDICT DE L’ATTAQUE")
+            self._label("Cas", event["cas"])
+            self._label("Effet interdit constaté", _oui_non(event["verdict"]["reussie"]))
+            self._label("Effets interdits", ", ".join(event["verdict"]["objectifs_atteints"]) or "aucun")
         elif name in ("modele_erreur", "execution_erreur"):
-            self._write("ERROR")
+            self._write("ERREUR")
             self._label("Type", event["type"])
             self._block("Message", event["message"])
         elif name == "campagne_fin":
-            self._heading("CAMPAIGN END")
-            self._label("Reason", event["raison"])
+            self._heading("FIN DE LA CAMPAGNE")
+            self._label("Motif", event["raison"])
         else:
-            self._write(f"EVENT: {name}")
+            self._write(f"ÉVÉNEMENT : {name}")
 
     def commencer(self, cas, tache, max_etapes):
         self.execution = uuid4().hex
@@ -613,38 +777,38 @@ class Journal:
         self.cas, self.tipo = cas, _execution_type(cas)
         self.noter("execution_debut", cas=cas, tache=tache, max_etapes=max_etapes)
         progress = self._progress_line()
-        print(f"[journal] -------- {self.tipo} | start{f' | {progress}' if progress else ''} --------")
-        print(f"[journal] case={cas} | execution={self.execution[:8]}")
-        print(f"[journal]   task: {_shorten(tache, 140)}")
+        print(f"[journal] -------- {self.tipo} | début{f' | {progress}' if progress else ''} --------")
+        print(f"[journal] cas={cas} | exécution={self.execution[:8]}")
+        print(f"[journal]   tâche : {_shorten(tache, 140)}")
 
     def annoncer_etape(self, number):
         progress = self._progress_line()
-        print(f"[journal] [{self.tipo or 'EXECUTION'}] step {number}/{self.max_etapes or '?'}"
+        print(f"[journal] [{self.tipo or 'EXÉCUTION'}] étape {number}/{self.max_etapes or '?'}"
               f"{f' | {progress}' if progress else ''}")
 
     def annoncer_decision(self, action):
         if "fin" in action:
-            print("[journal]   decision: fin")
+            print("[journal]   décision : fin")
             return
         tool = str(action.get("outil", "")).strip() or "?"
         args = _readable_args(action.get("args") or {})
-        print(f"[journal]   decision: {tool}({args})" if args else f"[journal]   decision: {tool}()")
+        print(f"[journal]   décision : {tool}({args})" if args else f"[journal]   décision : {tool}()")
 
     def annoncer_outil(self, tool, args, allowed, reason=""):
-        print(f"[journal]   tool: {tool} | {'allowed' if allowed else 'REFUSED'}"
-              f"{f' | {_shorten(reason, 80)}' if reason else ''}")
+        print(f"[journal]   outil : {tool} | {'AUTORISÉ' if allowed else 'REFUSÉ'}"
+              f"{f' | {_shorten(_motif_lisible_en_francais(reason), 80)}' if reason else ''}")
 
     def annoncer_resultat(self, tool, text):
-        print(f"[journal]   result: {_shorten(text, 120)}")
+        print(f"[journal]   résultat : {_shorten(text, 120)}")
 
     def terminer(self, reason, calls, response):
         self.noter("execution_fin", raison=reason, appels=calls, reponse=response)
         progress = self._progress_line()
-        print(f"[journal] -------- {self.tipo or 'EXECUTION'} | end"
+        print(f"[journal] -------- {self.tipo or 'EXÉCUTION'} | fin"
               f"{f' | {progress}' if progress else ''} --------")
-        print(f"[journal] case={self.cas} | reason={reason} | tool calls={calls}")
+        print(f"[journal] cas={self.cas} | motif={reason} | appels d’outils={calls}")
         if response:
-            print(f"[journal]   response: {_shorten(response, 140)}")
+            print(f"[journal]   réponse : {_shorten(response, 140)}")
         self.execution = self.etape = self.max_etapes = None
         self.cas = self.tipo = None
 

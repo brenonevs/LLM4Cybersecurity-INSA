@@ -65,13 +65,13 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
     assert tool["observation"] == "[read_log] " + tool["texte_complet"][:600]
     assert events[-1]["raison"] == "fin_modele"
     assert len({e["execution"] for e in events}) == 1
-    assert "MODEL REQUEST" in report
-    assert "MODEL INPUT" in report
-    assert "SYSTEM INSTRUCTIONS" in report
-    assert "ORIGINAL TECHNICIAN TASK" in report
-    assert "MODEL OUTPUT (RAW RESPONSE)" in report
-    assert "TOOL RESULT" in report
-    assert "Full result:" in report
+    assert "REQUÊTE AU MODÈLE" in report
+    assert "ENTRÉE DU MODÈLE" in report
+    assert "INSTRUCTIONS SYSTÈME" in report
+    assert "TÂCHE ORIGINALE DU TECHNICIEN" in report
+    assert "SORTIE DU MODÈLE (RÉPONSE BRUTE)" in report
+    assert "RÉSULTAT DE L’OUTIL" in report
+    assert "Résultat complet:" in report
 
 
 def test_limite_refus_et_isolation(tmp_path):
@@ -126,7 +126,37 @@ def test_append_preserve_campaigns(tmp_path):
         journal.fermer()
     report = path.read_text(encoding="utf-8")
     assert campaigns[0] != campaigns[1]
-    assert report.count("EVENT: test") == 2
+    assert report.count("ÉVÉNEMENT : test") == 2
+
+
+def test_journal_groups_source_fields_by_original_record(tmp_path):
+    path = tmp_path / "journal.log"
+    journal = Journal(path)
+    journal.noter(
+        "outil_resultat", outil="read_log", args={"equipement": "SENS-39"},
+        texte_complet="one journal entry and one ticket", origine="externe",
+        source="journal:SENS-39", sources=[
+            {"key": "journal:1822:horodatage", "kind": "journal",
+             "record_id": "1822", "field": "horodatage", "origin": "interne",
+             "actor": "sensor:SENS-39", "content_type": "timestamp"},
+            {"key": "journal:1822:mesure", "kind": "journal",
+             "record_id": "1822", "field": "mesure", "origin": "interne",
+             "actor": "sensor:SENS-39", "content_type": "measure"},
+            {"key": "ticket:TCK-046:description", "kind": "ticket",
+             "record_id": "TCK-046", "field": "description", "origin": "externe",
+             "actor": "prestataire-externe", "content_type": "text"},
+        ], axis_b_observations=[])
+    journal.fermer()
+
+    report = path.read_text(encoding="utf-8")
+    assert "Sources de données dans ce résultat d’outil" in report
+    assert "Enregistrements d’origine: 2" in report
+    assert "Entrée de journal #1822" in report
+    assert "Auteur déclaré: sensor:SENS-39" in report
+    assert "- Horodatage (horodatage)" in report
+    assert "- Mesure (mesure)" in report
+    assert "Ticket de maintenance #TCK-046" in report
+    assert "journal:1822:mesure désigne le champ Mesure" in report
 
 
 def test_lire_accepte_jsonl_compact_ancien(tmp_path):

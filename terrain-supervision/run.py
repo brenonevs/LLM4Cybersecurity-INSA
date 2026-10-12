@@ -764,10 +764,10 @@ def cmd_attaque(a):
     print(json.dumps(verdict, indent=2, ensure_ascii=False))
     if a.trace:
         for ap in ex.trace:
-            marque = "OK " if ap.autorise else "REF"
+            marque = "AUTORISÉ" if ap.autorise else "REFUSÉ"
             args = {k: (v[:60] + "..." if len(v) > 60 else v)
                     for k, v in ap.args.items()}
-            print(f"  {marque} {ap.outil} {args}")
+            print(f"  {marque} | outil={ap.outil} | arguments={args}")
 
 
 def cmd_calibrer(a):
@@ -938,6 +938,19 @@ def _semantic_review(observations):
             "matched_concepts": list(semantic.matched_concepts),
             "semantic_reasons": list(semantic.reasons),
             "semantic_candidate": semantic.candidate,
+            "syntactic": None if item.evaluation.syntactic is None else {
+                "protocol": item.evaluation.syntactic.protocol,
+                "available": item.evaluation.syntactic.available,
+                "action_verb": item.evaluation.syntactic.action_verb,
+                "imperative": item.evaluation.syntactic.imperative,
+                "negated": item.evaluation.syntactic.negated,
+                "passive": item.evaluation.syntactic.passive,
+                "object": item.evaluation.syntactic.object_text,
+                "target": item.evaluation.syntactic.target,
+                "target_kind": item.evaluation.syntactic.target_kind,
+                "candidate": item.evaluation.syntactic.candidate,
+                "reasons": list(item.evaluation.syntactic.reasons),
+            },
             "embedding": None if item.evaluation.embedding is None else {
                 "protocol": item.evaluation.embedding.protocol,
                 "category": item.evaluation.embedding.category,

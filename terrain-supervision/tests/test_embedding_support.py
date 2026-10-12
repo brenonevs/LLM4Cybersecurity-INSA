@@ -222,12 +222,12 @@ def test_journal_records_embedding_when_it_does_not_change_beta(tmp_path):
     journal.fermer()
 
     report = (tmp_path / "journal.log").read_text(encoding="utf-8")
-    assert "embedding observation (embedding-support-v1)" in report
-    assert "margin=0.100" in report
-    assert "support=0" in report
-    assert "recorded without a beta change" in report
-    assert "Exact field content evaluated" in report
-    assert "instruction_override: not matched" in report
+    assert "observation d’embedding (embedding-support-v1)" in report
+    assert "marge=0.100" in report
+    assert "soutien=0" in report
+    assert "enregistré sans modification de β" in report
+    assert "Contenu exact du champ évalué" in report
+    assert "instruction_override: non détecté" in report
 
 
 def test_embedding_support_flag_constructs_the_local_embedding_client(monkeypatch):
