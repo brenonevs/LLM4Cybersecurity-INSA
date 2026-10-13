@@ -97,6 +97,20 @@ class Outils:
     def __init__(self, etat: Etat):
         self.etat = etat
 
+    @staticmethod
+    def _source_identity(kind: str, record):
+        """Return fixed provenance metadata without changing the baseline corpus."""
+        if kind == "journal":
+            return f"sensor:{record.equipement}", "interne"
+        if kind == "ticket":
+            return record.auteur, "externe" if record.externe else "interne"
+        if kind == "fiche":
+            return ("prestataire-externe", "externe") if record.injectable else (
+                "documentation-interne", "interne")
+        if kind == "mail":
+            return record.expediteur, "externe" if record.injectable else "interne"
+        raise ValueError(f"unsupported source kind: {kind}")
+
     # --- lecture ------------------------------------------------------
 
     def read_log(self, equipement: str) -> Fragment:
@@ -109,34 +123,34 @@ class Outils:
                  for _, l in lignes]
         sources, evidences = [], []
         for i, ligne in lignes:
-            author = c.authors[ligne.author_id]
+            actor, origin = self._source_identity("journal", ligne)
             reference = SourceReference(
                 f"journal:{i}:horodatage", "journal", str(i), "horodatage",
-                author.origin, author.id, "timestamp")
+                origin, actor, "timestamp")
             sources.append(reference)
             evidences.append(SourceEvidence(reference, ligne.horodatage))
             reference = SourceReference(
                 f"journal:{i}:mesure", "journal", str(i), "mesure",
-                author.origin, author.id, "measure")
+                origin, actor, "measure")
             sources.append(reference)
             evidences.append(SourceEvidence(reference, ligne.mesure))
             if ligne.commentaire:
                 reference = SourceReference(
                     f"journal:{i}:commentaire", "journal", str(i), "commentaire",
-                    author.origin, author.id)
+                    origin, actor)
                 sources.append(reference)
                 evidences.append(SourceEvidence(reference, ligne.commentaire))
         for t in tickets:
-            author = c.authors[t.author_id]
-            blocs.append(f"[{t.id}] ({t.author_id}, {t.statut}) {t.description}")
+            actor, origin = self._source_identity("ticket", t)
+            blocs.append(f"[{t.id}] ({actor}, {t.statut}) {t.description}")
             reference = SourceReference(
                 f"ticket:{t.id}:statut", "ticket", t.id, "statut",
-                author.origin, author.id, "status")
+                origin, actor, "status")
             sources.append(reference)
             evidences.append(SourceEvidence(reference, t.statut))
             reference = SourceReference(
                 f"ticket:{t.id}:description", "ticket", t.id, "description",
-                author.origin, author.id)
+                origin, actor)
             sources.append(reference)
             evidences.append(SourceEvidence(reference, t.description))
         origine = "externe" if any(source.origin == "externe" for source in sources) else "interne"
@@ -150,37 +164,37 @@ class Outils:
         for f in c.fiches:
             cible = (f.titre + " " + f.contenu).lower()
             if not mots or any(m in cible for m in mots):
-                author = c.authors[f.author_id]
+                actor, origin = self._source_identity("fiche", f)
                 title_reference = SourceReference(
                     f"fiche:{f.id}:titre", "fiche", f.id, "titre",
-                    author.origin, author.id, "text")
+                    origin, actor, "text")
                 content_reference = SourceReference(
                     f"fiche:{f.id}:contenu", "fiche", f.id, "contenu",
-                    author.origin, author.id)
+                    origin, actor)
                 blocs.append((f"[{f.id}] {f.titre}\n{f.contenu}",
                               (title_reference, content_reference)))
                 evidences.extend((SourceEvidence(title_reference, f.titre),
                                   SourceEvidence(content_reference, f.contenu)))
-                if author.origin == "externe":
+                if origin == "externe":
                     origine = "externe"
         for m in c.mails:
             if not mots or any(mo in (m.sujet + m.corps).lower() for mo in mots):
-                author = c.authors[m.author_id]
+                actor, origin = self._source_identity("mail", m)
                 sender_reference = SourceReference(
                     f"mail:{m.id}:expediteur", "mail", m.id, "expediteur",
-                    author.origin, author.id, "email_address")
+                    origin, actor, "email_address")
                 subject_reference = SourceReference(
                     f"mail:{m.id}:sujet", "mail", m.id, "sujet",
-                    author.origin, author.id, "text")
+                    origin, actor, "text")
                 body_reference = SourceReference(
                     f"mail:{m.id}:corps", "mail", m.id, "corps",
-                    author.origin, author.id)
+                    origin, actor)
                 blocs.append((f"[{m.id}] de {m.expediteur} : {m.sujet}\n{m.corps}",
                               (sender_reference, subject_reference, body_reference)))
                 evidences.extend((SourceEvidence(sender_reference, m.expediteur),
                                   SourceEvidence(subject_reference, m.sujet),
                                   SourceEvidence(body_reference, m.corps)))
-                if author.origin == "externe":
+                if origin == "externe":
                     origine = "externe"
         visibles = blocs[:5]
         visible_references = {reference for _, references in visibles for reference in references}

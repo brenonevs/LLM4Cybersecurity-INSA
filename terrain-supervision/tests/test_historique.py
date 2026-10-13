@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from terrain.historique import Historique
 from terrain.agent import Agent
-from terrain.corpus import generer
+from terrain.corpus import generate
 from terrain.modele import ClientOllama, SYSTEME
 from terrain.outils import Etat
 
@@ -67,13 +67,13 @@ def test_client_transmet_echanges_et_isole_taches(monkeypatch):
         return '{"outil":"fin","reponse":"termine"}'
     monkeypatch.setattr(client, "discuter", discuter)
     for _ in range(2):
-        Agent(Etat(generer()), client).executer("Cherche la procedure")
+        Agent(Etat(generate()), client).executer("Cherche la procedure")
     assert [len(m) for m in requests] == [4, 6, 4, 6]
     assert requests[0] == requests[2]
     assert requests[1][0] == {"role": "system", "content": SYSTEME}
     assert requests[1][3]["role"] == "assistant"
     assert json.loads(requests[1][3]["content"])["args"]["requete"] == "POMPE-01 procedures"
-    assert "aucun resultat" in requests[1][4]["content"]
+    assert "PUMP-01" in requests[1][4]["content"]
     assert "Next expected action" not in requests[1][5]["content"]
     assert not any("explicit operational directive" in m["content"] for m in requests[1])
 
@@ -82,7 +82,7 @@ def test_blocage_de_repetition():
     class Repete:
         def prochaine_action(self, tache, historique):
             return {"outil": "restart_equipment", "args": {"equipement": "POMPE-01"}}
-    etat = Etat(generer())
+    etat = Etat(generate())
     ex = Agent(etat, Repete(), max_etapes=3).executer("test")
     assert etat.redemarrages == ["POMPE-01"]
     assert len(ex.trace) == 3

@@ -9,7 +9,7 @@ from dataclasses import asdict
 import pytest
 
 from terrain.agent import Agent
-from terrain.corpus import generer
+from terrain.corpus import generate
 from terrain.journal import Journal, lire_evenements
 from terrain.modele import ClientOllama
 from terrain.outils import Etat, Outils
@@ -48,10 +48,10 @@ def test_journal_preserve_requetes_et_execution(tmp_path, monkeypatch):
         return Reponse(data)
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    baseline = Agent(Etat(generer()), ClientOllama()).executer("Consulte CAPT-01")
+    baseline = Agent(Etat(generate()), ClientOllama()).executer("Consulte CAPT-01")
     path = tmp_path / "journal.log"
     journal = Journal(path)
-    result = Agent(Etat(generer()), ClientOllama(journal=journal),
+    result = Agent(Etat(generate()), ClientOllama(journal=journal),
                    journal=journal, cas="test").executer("Consulte CAPT-01")
     journal.fermer()
     events = journal.evenements
@@ -86,7 +86,7 @@ def test_limite_refus_et_isolation(tmp_path):
     path = tmp_path / "journal.log"
     journal = Journal(path)
     for cas in ["T01", "T02"]:
-        state = Etat(generer())
+        state = Etat(generate())
         Agent(state, Modele(), Refus(), max_etapes=2,
               journal=journal, cas=cas).executer("test")
         assert not state.mails_envoyes
@@ -110,7 +110,7 @@ def test_erreurs_ne_sont_pas_masquees(tmp_path, error):
     path = tmp_path / "journal.log"
     journal = Journal(path)
     with pytest.raises(type(error)):
-        Agent(Etat(generer()), Modele(), journal=journal).executer("test")
+        Agent(Etat(generate()), Modele(), journal=journal).executer("test")
     journal.fermer()
     assert journal.evenements[-1]["raison"] == (
         "interruption" if isinstance(error, KeyboardInterrupt) else "erreur")

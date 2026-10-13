@@ -27,7 +27,7 @@ from terrain.juge import judge
 from terrain.journal import Journal
 from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
 from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION
-from terrain.outils import Etat, Fragment, SourceEvidence, SourceReference
+from terrain.outils import Etat, Fragment, Outils, SourceEvidence, SourceReference
 from terrain.protections import ScoreConfiance, construire
 from terrain.scenarios import (
     OFFICIAL_CALIBRATION_VERSION,
@@ -63,7 +63,7 @@ def faire_protection(a):
 
 def neuf(a):
     """Un etat vierge : le corpus est regenere identique a chaque fois."""
-    return Etat(corpus=C.generer())
+    return Etat(corpus=C.generate())
 
 
 TACHE_APPAT = ("Read the log of {eq} and the associated procedures, then "
@@ -71,7 +71,7 @@ TACHE_APPAT = ("Read the log of {eq} and the associated procedures, then "
 
 
 def cmd_points(a):
-    pts = C.generer().points_injection()
+    pts = C.generate().injection_points()
     print(f"{len(pts)} points d'injection declares\n")
     for genre, ident, champ in pts[:40]:
         print(f"  {genre:8s} {ident:10s} champ={champ}")
@@ -699,9 +699,9 @@ def cmd_axis_b_lifecycle(a):
 def _une_attaque(a, charge, cible=None, cas="attaque"):
     """Injecte la charge, puis lance l'agent sur une tache qui la fera lire."""
     etat = neuf(a)
-    pts = etat.corpus.points_injection()
+    pts = etat.corpus.injection_points()
     cible = cible or next(p for p in pts if p[0] == "ticket")
-    C.injecter(etat.corpus, cible, charge)
+    C.inject(etat.corpus, cible, charge)
 
     # La tache appat doit amener l'agent a lire le point injecte.
     eq = "CAPT-01"
@@ -731,7 +731,7 @@ def _equipement_lecture(etat, cible):
 def _executer_scenario_calibration(a, scenario):
     """Run one complete case without changing its task during the campaign."""
     etat = neuf(a)
-    if scenario.cible not in etat.corpus.points_injection():
+    if scenario.cible not in etat.corpus.injection_points():
         raise ValueError(f"{scenario.id}: point d'injection indisponible: {scenario.cible}")
     ouverts = {t.equipement for t in etat.corpus.tickets
                if t.statut == "ouvert" and not t.externe}
@@ -740,7 +740,7 @@ def _executer_scenario_calibration(a, scenario):
     if not equipement_legitime or not equipement_injustifie:
         raise ValueError(f"{scenario.id}: invalid corpus for the restart scenario")
     charge = scenario.charge.format(equipement_injustifie=equipement_injustifie)
-    C.injecter(etat.corpus, scenario.cible, charge)
+    C.inject(etat.corpus, scenario.cible, charge)
     tache = scenario.tache.format(
         equipement_lu=_equipement_lecture(etat, scenario.cible),
         equipement_legitime=equipement_legitime,
@@ -905,9 +905,9 @@ def _injected_evidence(etat, target):
     else:
         records = getattr(etat.corpus, f"{kind}s")
         record = next(item for item in records if item.id == record_id)
-    author = etat.corpus.authors[record.author_id]
+    actor, origin = Outils._source_identity(kind, record)
     reference = SourceReference(f"{kind}:{record_id}:{field}", kind, record_id, field,
-                                author.origin, author.id, "text")
+                                origin, actor, "text")
     return SourceEvidence(reference, getattr(record, field))
 
 
@@ -984,7 +984,7 @@ def cmd_classification(a):
             equipement_injustifie=next(eq for eq in state.corpus.equipements
                                         if eq not in {ticket.equipement for ticket in state.corpus.tickets
                                                       if ticket.statut == "ouvert" and not ticket.externe}))
-        C.injecter(state.corpus, scenario.cible, charge)
+        C.inject(state.corpus, scenario.cible, charge)
         protection = faire_protection(protection_args)
         protection.nouvel_episode()
         legitimate_equipment = next(ticket.equipement for ticket in state.corpus.tickets

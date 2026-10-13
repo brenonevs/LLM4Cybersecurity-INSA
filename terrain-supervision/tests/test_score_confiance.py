@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from terrain.agent import Agent
 from terrain.classification import ClassificationMetrics
-from terrain.corpus import generer
+from terrain.corpus import generate
 from terrain.outils import Etat, Fragment, SourceEvidence, SourceReference
 from terrain.protections import ScoreConfiance, construire
 
@@ -168,7 +168,7 @@ def test_agent_reading_a_real_record_populates_task_sources():
             return next(self.actions)
 
     protection = ScoreConfiance()
-    Agent(Etat(generer()), Modele(), protection).executer("Read SENS-39.")
+    Agent(Etat(generate()), Modele(), protection).executer("Read SENS-39.")
 
     seen = protection.sources_tache()
     assert ("prestataire-externe", "ticket") in seen
