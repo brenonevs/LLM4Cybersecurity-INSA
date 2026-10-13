@@ -222,3 +222,8 @@ def domaine_de(adresse: str) -> str:
 def est_interne(adresse: str) -> bool:
     d = domaine_de(adresse)
     return any(d == x or d.endswith("." + x) for x in DOMAINES_INTERNES)
+
+
+# Keep the shared-main API available while Axis B retains its existing callers.
+domain_of = domaine_de
+is_internal = est_interne
