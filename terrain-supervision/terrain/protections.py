@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .embeddings import EmbeddingReferences
 from .evaluation import FAVORABLE, Evaluation, UNFAVORABLE, evaluate_evidence
-from .outils import Fragment, est_interne
+from .outils import Fragment, is_internal
 
 
 class Protection:
@@ -92,7 +92,7 @@ class ListeBlancheDestinataires(Protection):
     nom = "liste-blanche"
 
     def verifier(self, outil, args, origine_courante):
-        if outil == "send_email" and not est_interne(args.get("destinataire", "")):
+        if outil == "send_email" and not is_internal(args.get("destinataire", "")):
             return "destinataire hors domaines internes"
         return None
 

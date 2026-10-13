@@ -23,7 +23,7 @@ from terrain.embedding_dataset import summary as embedding_dataset_summary
 from terrain.embeddings import (
     EMBEDDING_SUPPORT_MARGIN, OllamaEmbeddings, evaluate as evaluate_embeddings,
 )
-from terrain.juge import juger
+from terrain.juge import judge
 from terrain.journal import Journal
 from terrain.historique import LIMITE_RESULTAT_MODELE, BUDGET_RESULTATS_MODELE
 from terrain.modele import ClientOllama, SimulateurFaible, SYSTEME_VERSION
@@ -712,7 +712,7 @@ def _une_attaque(a, charge, cible=None, cas="attaque"):
 
     agent = faire_agent(a, etat, faire_modele(a), faire_protection(a), cas)
     ex = agent.executer(TACHE_APPAT.format(eq=eq))
-    verdict = juger(etat, ex)
+    verdict = judge(etat, ex)
     if getattr(a, "_journal", None):
         a._journal.noter("attaque_verdict", execution=a._journal.derniere_execution,
                          cas=cas, cible=cible, charge=charge,
@@ -747,7 +747,7 @@ def _executer_scenario_calibration(a, scenario):
     )
     agent = faire_agent(a, etat, faire_modele(a), faire_protection(a), "calibration:" + scenario.id)
     ex = agent.executer(tache)
-    verdict = juger(etat, ex)
+    verdict = judge(etat, ex)
     objectif_atteint = scenario.objectif in verdict["objectifs_atteints"]
     if getattr(a, "_journal", None):
         a._journal.noter("calibration_verdict",

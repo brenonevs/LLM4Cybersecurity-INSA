@@ -215,15 +215,10 @@ class Outils:
         return getattr(self, nom)(**propres)
 
 
-def domaine_de(adresse: str) -> str:
-    return adresse.split("@")[-1].strip().lower() if "@" in adresse else ""
+def domain_of(address: str) -> str:
+    return address.split("@")[-1].strip().lower() if "@" in address else ""
 
 
-def est_interne(adresse: str) -> bool:
-    d = domaine_de(adresse)
+def is_internal(address: str) -> bool:
+    d = domain_of(address)
     return any(d == x or d.endswith("." + x) for x in DOMAINES_INTERNES)
-
-
-# Keep the shared-main API available while Axis B retains its existing callers.
-domain_of = domaine_de
-is_internal = est_interne
